@@ -27,8 +27,8 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 1 - Biblioteca de Blocos
-Fase anterior: Fase 0 concluida
+Fase atual: Fase 2 - Benchmark de Reconstrucao
+Fase anterior: Fase 1 concluida
 Proximo marco: Marco A - Prova de Matriz
 ```
 
@@ -37,8 +37,8 @@ Resumo do estado:
 | Fase | Nome | Status |
 |---|---|---|
 | 0 | Fundacao Conceitual | Concluida |
-| 1 | Biblioteca de Blocos | Proxima |
-| 2 | Benchmark de Reconstrucao | Pendente |
+| 1 | Biblioteca de Blocos | Concluida |
+| 2 | Benchmark de Reconstrucao | Proxima |
 | 3 | Roteador de Blocos | Pendente |
 | 4 | Treino de Camada Linear | Pendente |
 | 5 | Mini-Transformer | Pendente |
@@ -109,7 +109,7 @@ sem escrever ainda um runtime grande.
 
 ## 2. Fase 1 - Biblioteca de Blocos
 
-Status: **proxima fase**.
+Status: **concluida**.
 
 ### Objetivo
 
@@ -129,16 +129,20 @@ Criar operacoes basicas para dividir, agrupar, reconstruir e medir matrizes.
 
 ### Entregas Tecnicas
 
-- pacote inicial `saint`;
-- modulo `blocks`;
-- funcao para particionar matrizes;
-- funcao para reconstruir matrizes;
-- suporte a padding;
-- suporte a blocos de borda;
-- calculo de assinaturas;
-- agrupamento exato;
-- agrupamento aproximado por quantizacao;
-- testes unitarios.
+- pacote inicial `saint` - concluido;
+- modulo `blocks` - concluido;
+- funcao para particionar matrizes - concluido;
+- funcao para reconstruir matrizes - concluido;
+- suporte a padding - concluido;
+- suporte a blocos de borda - concluido;
+- calculo de assinaturas - concluido;
+- agrupamento exato - concluido;
+- agrupamento aproximado por quantizacao - concluido;
+- metricas de reconstrucao - concluido;
+- metricas de reutilizacao - concluido;
+- codebook fixo inicial - concluido;
+- testes unitarios - concluido;
+- documentacao da fase em `docs/process/fase_1_biblioteca_blocos.md` - concluido.
 
 ### API Inicial Desejada
 
@@ -778,11 +782,23 @@ Primeiro objetivo tecnico:
 particionar matriz -> reconstruir matriz identica
 ```
 
+Status: **concluido em Python puro com testes unitarios**.
+
 Segundo objetivo tecnico:
 
 ```text
 detectar blocos iguais por assinatura simples
 ```
+
+Status: **concluido para assinatura exata e quantizada**.
+
+Terceiro objetivo tecnico:
+
+```text
+reportar erro de reconstrucao, reutilizacao e compressao estimada
+```
+
+Status: **concluido**.
 
 ## 19. Sinais de Alerta
 
