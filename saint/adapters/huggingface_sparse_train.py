@@ -8,8 +8,12 @@ from typing import Any
 def inplace_delta(torch, named, deltas, coordinates, *, sign: float) -> None:
     with torch.no_grad():
         for name, delta in deltas.items():
-            rows, cols = coordinates[name]
-            named[name].index_put_((rows, cols), sign * delta, accumulate=True)
+            rows, cols, *extra = coordinates[name]
+            values = delta
+            if extra:
+                prototype, scale_ids = extra
+                values = (delta[scale_ids] * prototype).sum(dim=-1)
+            named[name].index_put_((rows, cols), sign * values, accumulate=True)
 
 
 def inplace_loss_value(torch, model, named, deltas, coordinates, batch) -> float:
@@ -74,10 +78,18 @@ def train_inplace_sparse(
         with torch.no_grad():
             step_lr = learning_rate * (lr_decay ** step)
             for name, delta in deltas.items():
-                rows, cols = coordinates[name]
+                rows, cols, *extra = coordinates[name]
                 grad = named[name].grad
                 if grad is not None:
-                    delta.sub_(step_lr * grad[rows, cols].to(delta.dtype))
+                    values = grad[rows, cols].to(delta.dtype)
+                    if extra:
+                        prototype, scale_ids = extra
+                        scaled = values.reshape(-1, 1) * prototype.to(delta.dtype)
+                        update = torch.zeros_like(delta)
+                        update.index_add_(0, scale_ids.flatten(), scaled.flatten())
+                        delta.sub_(step_lr * update)
+                    else:
+                        delta.sub_(step_lr * values)
         _zero_target_grads(named, coordinates)
         validation_loss = None
         if validation_batch is not None:

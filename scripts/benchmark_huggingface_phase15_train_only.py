@@ -73,6 +73,10 @@ def _config(args) -> RuntimeConfig:
         "validation_rerank_chunk_size": args.validation_rerank_chunk_size,
         "validation_probe_epsilon": args.validation_probe_epsilon,
         "validation_rerank_max_candidates": args.validation_rerank_max_candidates,
+        "validation_rerank_batch_size": args.validation_rerank_batch_size,
+        "structured_prototype_count": args.structured_prototype_count,
+        "structured_prototype_mode": args.structured_prototype_mode,
+        "structured_scale_granularity": args.structured_scale_granularity,
         "target_names": _target_names(args.target_names),
         "target_device": args.target_device,
         "max_cuda_gb": args.max_cuda_gb,
@@ -152,6 +156,10 @@ def main() -> None:
     parser.add_argument("--validation-rerank-chunk-size", type=int, default=256)
     parser.add_argument("--validation-probe-epsilon", type=float, default=1e-3)
     parser.add_argument("--validation-rerank-max-candidates", type=int, default=None)
+    parser.add_argument("--validation-rerank-batch-size", type=int, default=1)
+    parser.add_argument("--structured-prototype-count", type=int, default=1)
+    parser.add_argument("--structured-prototype-mode", default="weight_sign")
+    parser.add_argument("--structured-scale-granularity", default="block")
     parser.add_argument("--hf-device-map", default=None)
     parser.add_argument("--hf-max-memory", default=None)
     parser.add_argument("--hf-offload-folder", default=None)

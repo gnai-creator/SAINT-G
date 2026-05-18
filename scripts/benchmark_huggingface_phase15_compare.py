@@ -69,6 +69,12 @@ def _row_from_saint(result: dict[str, Any], *, budget: int, max_memory: str) -> 
                 metadata.get("validation_loss", 0.0)
                 - metadata.get("initial_validation_loss", 0.0)
             ),
+            "validation_gain_per_parameter": max(
+                metadata.get("initial_validation_loss", 0.0)
+                - metadata.get("validation_loss", 0.0),
+                0.0,
+            )
+            / max(1, checkpoint["parameter_count"]),
             "parameter_count": checkpoint["parameter_count"],
             "loss_delta": checkpoint["train_loss"] - metadata.get("initial_loss", 0.0),
             "gain_per_parameter": max(
@@ -121,6 +127,10 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         validation_rerank_chunk_size=args.validation_rerank_chunk_size,
         validation_probe_epsilon=args.validation_probe_epsilon,
         validation_rerank_max_candidates=args.validation_rerank_max_candidates,
+        validation_rerank_batch_size=args.validation_rerank_batch_size,
+        structured_prototype_count=args.structured_prototype_count,
+        structured_prototype_mode=args.structured_prototype_mode,
+        structured_scale_granularity=args.structured_scale_granularity,
         hf_device_map=args.hf_device_map,
         hf_max_memory=max_memory,
         hf_offload_folder=str(Path(args.out) / f"offload_{label}"),
@@ -197,6 +207,14 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
             str(values.validation_rerank_chunk_size),
             "--validation-probe-epsilon",
             str(values.validation_probe_epsilon),
+            "--validation-rerank-batch-size",
+            str(values.validation_rerank_batch_size),
+            "--structured-prototype-count",
+            str(values.structured_prototype_count),
+            "--structured-prototype-mode",
+            values.structured_prototype_mode,
+            "--structured-scale-granularity",
+            values.structured_scale_granularity,
         ]
     )
     if values.validation_rerank_max_candidates is not None:
@@ -228,6 +246,7 @@ def _lora_rank(args, *, rank: int) -> dict[str, Any]:
         namespace,
         rank=rank,
         texts=_text_items(args.corpus, args.train_texts),
+        validation_texts=_text_items(args.corpus, args.validation_texts),
     )
 
 
@@ -323,6 +342,10 @@ def main() -> None:
     parser.add_argument("--validation-rerank-chunk-size", type=int, default=256)
     parser.add_argument("--validation-probe-epsilon", type=float, default=1e-3)
     parser.add_argument("--validation-rerank-max-candidates", type=int, default=None)
+    parser.add_argument("--validation-rerank-batch-size", type=int, default=1)
+    parser.add_argument("--structured-prototype-count", type=int, default=1)
+    parser.add_argument("--structured-prototype-mode", default="weight_sign")
+    parser.add_argument("--structured-scale-granularity", default="block")
     parser.add_argument("--hf-device-map", default="auto")
     parser.add_argument("--lora-max-memory", default="0=14GiB,cpu=64GiB")
     parser.add_argument("--lora-learning-rate", type=float, default=0.001)

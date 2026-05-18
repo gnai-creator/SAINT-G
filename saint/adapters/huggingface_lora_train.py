@@ -47,7 +47,13 @@ def _lora_hook(torch, a, b):
     return hook
 
 
-def train_lora_rank(args: Any, *, rank: int, texts: list[str]) -> dict[str, Any]:
+def train_lora_rank(
+    args: Any,
+    *,
+    rank: int,
+    texts: list[str],
+    validation_texts: list[str] | None = None,
+) -> dict[str, Any]:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -75,6 +81,12 @@ def train_lora_rank(args: Any, *, rank: int, texts: list[str]) -> dict[str, Any]
         max_length=args.max_length,
         device=device,
     )
+    val_ids, val_mask = _load_batch(
+        tokenizer,
+        validation_texts or texts,
+        max_length=args.max_length,
+        device=device,
+    )
     named = dict(model.named_parameters())
     target = args.lora_target
     if target not in named:
@@ -96,6 +108,7 @@ def train_lora_rank(args: Any, *, rank: int, texts: list[str]) -> dict[str, Any]
     handle.remove()
     with torch.no_grad():
         initial_loss = float(_plain_loss(model, input_ids, attention_mask).cpu().item())
+        initial_validation_loss = float(_plain_loss(model, val_ids, val_mask).cpu().item())
     handle = module.register_forward_hook(_lora_hook(torch, a, b))
     start = perf_counter()
     for _ in range(args.steps):
@@ -107,6 +120,7 @@ def train_lora_rank(args: Any, *, rank: int, texts: list[str]) -> dict[str, Any]
     model.eval()
     with torch.no_grad():
         final_loss = float(_plain_loss(model, input_ids, attention_mask).cpu().item())
+        validation_loss = float(_plain_loss(model, val_ids, val_mask).cpu().item())
     handle.remove()
     peak = int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
     if peak / 1_000_000_000 > args.max_cuda_gb:
@@ -121,13 +135,21 @@ def train_lora_rank(args: Any, *, rank: int, texts: list[str]) -> dict[str, Any]
         "elapsed_s": elapsed,
         "initial_loss": initial_loss,
         "train_loss": final_loss,
+        "validation_loss": validation_loss,
+        "initial_validation_loss": initial_validation_loss,
+        "validation_loss_delta": validation_loss - initial_validation_loss,
+        "validation_gain_per_parameter": max(
+            initial_validation_loss - validation_loss,
+            0.0,
+        )
+        / max(1, params),
         "loss_delta": final_loss - initial_loss,
         "parameter_count": params,
         "gain_per_parameter": max(initial_loss - final_loss, 0.0) / max(1, params),
         "train_cuda_gb": peak / 1_000_000_000,
         "lora_application": "forward_hook",
     }
-    del model, tokenizer, input_ids, attention_mask, a, b, optimizer
+    del model, tokenizer, input_ids, attention_mask, val_ids, val_mask, a, b, optimizer
     gc.collect()
     if device.type == "cuda":
         torch.cuda.empty_cache()

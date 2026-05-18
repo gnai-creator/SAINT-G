@@ -2736,6 +2736,95 @@ Proximo marco:
 - medir validation loss corrigida em camadas 1, 2 e 3;
 - comparar contra LoRA forward-hook em validation loss.
 
+### Marco 10 - Blocos Estruturados
+
+Status: **concluido como diagnostico**.
+
+Mudancas:
+
+- criado `activation_structured_block_validation_rerank`;
+- bloco estruturado usa `delta_bloco = scale * prototype`;
+- cada bloco tem um parametro treinavel `scale`;
+- prototipo inicial usa sinal do peso base;
+- criado `--validation-rerank-batch-size`;
+- LoRA forward-hook passou a registrar validation loss.
+
+Resultado 14B, `v_proj`, block4, budget 16:
+
+| camada | SAINT val delta | SAINT params | routing_s | LoRA r1 val delta | LoRA r2 val delta |
+|---:|---:|---:|---:|---:|---:|
+| 1 | +0.002546 | 16 | 16.888 | -0.116323 | -0.180719 |
+| 2 | -0.002882 | 16 | 16.282 | -0.285410 | -0.197755 |
+| 3 | +0.021051 | 16 | 16.304 | -0.255529 | -0.450788 |
+
+Veredito:
+
+```text
+o rerank batelado reduziu routing_s de cerca de 35s para 16s,
+mas bloco estruturado scale * prototype ainda nao compete com LoRA.
+```
+
+Proximo marco:
+
+- usar dois ou mais prototipos por bloco;
+- inicializar prototipos por gradiente/ativacao;
+- testar budgets 32, 64 e 128 scales;
+- comparar ganho por parametro em validation loss;
+- decidir se SAINT 14B deve otimizar compressao extrema ou qualidade contra
+  LoRA.
+
+### Marco 11 - Multiplos Prototipos Estruturados
+
+Status: **concluido como sinal de compressao extrema**.
+
+Mudancas:
+
+- blocos estruturados aceitam multiplos prototipos:
+  `delta = scale_a * P_a + scale_b * P_b`;
+- prototipos podem usar `weight_sign`, `activation`, `weight_activation` ou
+  `weight_value`;
+- scales podem ser por bloco, linha ou coluna;
+- metadata registra `prototype_count`, `prototype_shape`, `scale_id_shape` e
+  `scale_count`.
+
+Resultado 14B, layer 2 `v_proj`, `prototype_count=2`,
+`prototype_mode=weight_activation`, `scale_granularity=row`:
+
+| budget | validation delta | params | ganho val/param | routing_s |
+|---:|---:|---:|---:|---:|
+| 32 | -0.021731 | 32 | 6.79e-04 | 28.497 |
+| 64 | -0.007499 | 64 | 1.17e-04 | 48.258 |
+| 128 | -0.003388 | 128 | 2.65e-05 | 92.410 |
+
+Comparacao:
+
+| metodo | validation delta | params | ganho val/param |
+|---|---:|---:|---:|
+| SAINT budget 32 | -0.021731 | 32 | 6.79e-04 |
+| LoRA rank 1 forward-hook | -0.165617 | 6144 | 2.70e-05 |
+
+Veredito:
+
+```text
+LoRA ainda vence em qualidade absoluta.
+SAINT venceu em ganho de validacao por parametro no budget 32.
+```
+
+Decisao tecnica:
+
+```text
+Fase 15 deve tratar SAINT como compressao extrema primeiro,
+nao como substituto direto de LoRA em qualidade absoluta.
+```
+
+Proximo marco:
+
+- reportar `validation_gain_per_parameter` automaticamente;
+- testar budgets 16/32/64 em mais camadas;
+- comparar contra baseline com parametro equivalente;
+- varrer `prototype_mode` e `scale_granularity`;
+- fechar criterio da Fase 15 por eficiencia por parametro/checkpoint.
+
 ## Fase 16 - Escala 70B
 
 Status: **pendente**.

@@ -1229,3 +1229,256 @@ Marco 10 deve melhorar eficiencia e qualidade dos blocos:
 - selecionar mais blocos sem aumentar linearmente o numero de forwards;
 - medir validacao final para camadas 1, 2 e 3 com a metrica corrigida;
 - comparar contra LoRA forward-hook em validation loss, nao apenas train loss.
+
+## Marco 10 - Blocos Estruturados
+
+Status: **concluido como diagnostico**.
+
+### Mudancas
+
+- adicionado `activation_structured_block_validation_rerank`;
+- blocos estruturados usam um parametro treinavel por bloco:
+
+```text
+delta_bloco = scale * prototype
+```
+
+- o prototipo inicial usa o sinal do peso base no bloco;
+- o treino atualiza apenas `scale`;
+- adicionado `--validation-rerank-batch-size`;
+- varios blocos candidatos podem ser testados no mesmo forward de validacao;
+- LoRA forward-hook agora registra:
+  - `initial_validation_loss`;
+  - `validation_loss`;
+  - `validation_loss_delta`.
+
+### Smoke 3B
+
+Config:
+
+```text
+model: models/Qwen2.5-3B
+routing: activation_structured_block_validation_rerank
+block_size: 4
+budget: 16
+validation_rerank_max_candidates: 8
+validation_rerank_batch_size: 4
+```
+
+Resultado:
+
+| metodo | train delta | validation delta | params | routing_s |
+|---|---:|---:|---:|---:|
+| SAINT structured block4 | +0.065132 | -0.032646 | 8 | 0.819 |
+| LoRA rank 1 forward-hook | -0.289929 | n/a | 2304 | n/a |
+
+Leitura:
+
+```text
+o bloco estruturado consegue melhorar validacao com poucos parametros, mas pode
+piorar train loss. Isso confirma que a metrica de validacao virou necessaria.
+```
+
+### 14B - Camadas 1, 2 e 3
+
+Config:
+
+```text
+model: models/Qwen2.5-14B
+target: v_proj
+routing: activation_structured_block_validation_rerank
+block_size: 4
+budget: 16
+validation_rerank_max_candidates: 16
+validation_rerank_batch_size: 8
+train_texts: 3
+validation_texts: 6
+steps: 4
+```
+
+Resultados SAINT:
+
+| camada | train delta | validation delta | params | routing_s | train CUDA |
+|---:|---:|---:|---:|---:|---:|
+| 1 | +0.003109 | +0.002546 | 16 | 16.888 | 15.781 GB |
+| 2 | -0.004762 | -0.002882 | 16 | 16.282 | 15.781 GB |
+| 3 | -0.025127 | +0.021051 | 16 | 16.304 | 15.781 GB |
+
+Comparacao LoRA forward-hook:
+
+| camada | LoRA rank 1 val delta | LoRA rank 2 val delta | LoRA rank 1 params | LoRA rank 2 params |
+|---:|---:|---:|---:|---:|
+| 1 | -0.116323 | -0.180719 | 6144 | 12288 |
+| 2 | -0.285410 | -0.197755 | 6144 | 12288 |
+| 3 | -0.255529 | -0.450788 | 6144 | 12288 |
+
+### Eficiencia de Roteamento
+
+O Marco 9, com blocos livres e 8 candidatos, tinha custo aproximado:
+
+```text
+routing_s ~= 35s
+```
+
+O Marco 10, com blocos estruturados e `validation_rerank_batch_size=8`,
+reduziu para:
+
+```text
+routing_s ~= 16s
+```
+
+Leitura:
+
+```text
+agrupar candidatos em um mesmo forward reduziu o custo de roteamento pela
+metade, sem aumentar o pico de VRAM.
+```
+
+### Veredito
+
+```text
+Marco 10 melhorou eficiencia, mas nao resolveu qualidade.
+```
+
+O resultado mais util:
+
+```text
+layer 2:
+SAINT structured block4 validation_delta = -0.002882
+params = 16
+routing_s = 16.282
+```
+
+Isso e um sinal pequeno de generalizacao com pouquissimos parametros, mas ainda
+esta muito abaixo de LoRA forward-hook em validation loss.
+
+## Proximo Marco
+
+Marco 11 deve aumentar capacidade sem perder compressao:
+
+- usar mais de um prototipo por bloco, por exemplo
+  `delta = scale_a * P_a + scale_b * P_b`;
+- inicializar prototipos por gradiente/ativacao, nao pelo sinal do peso base;
+- permitir `scale` por linha ou coluna dentro do bloco;
+- testar budgets estruturados 32, 64 e 128 scales;
+- manter rerank batelado;
+- comparar ganho por parametro contra LoRA rank 1 em validation loss;
+- decidir se SAINT 14B deve focar em compressao extrema ou qualidade contra
+  LoRA.
+
+## Marco 11 - Multiplos Prototipos Estruturados
+
+Status: **concluido como sinal de compressao extrema**.
+
+### Mudancas
+
+- blocos estruturados agora aceitam multiplos prototipos por bloco:
+
+```text
+delta = scale_a * P_a + scale_b * P_b
+```
+
+- adicionado `--structured-prototype-count`;
+- adicionado `--structured-prototype-mode`;
+- adicionado `--structured-scale-granularity`;
+- modos iniciais:
+  - `weight_sign`;
+  - `activation`;
+  - `weight_activation`;
+  - `weight_value`;
+- escalas podem ser:
+  - por bloco;
+  - por linha;
+  - por coluna;
+- metadata de delta registra estrutura efetiva:
+  - `prototype_count`;
+  - `prototype_shape`;
+  - `scale_id_shape`;
+  - `scale_count`.
+
+### Config Principal
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.2.self_attn.v_proj.weight
+routing: activation_structured_block_validation_rerank
+block_size: 4
+prototype_count: 2
+prototype_mode: weight_activation
+scale_granularity: row
+validation_rerank_batch_size: 8
+validation_rerank_max_candidates: 32
+train_texts: 3
+validation_texts: 6
+steps: 4
+```
+
+### Budgets Estruturados
+
+| budget scales | validation delta | train delta | routing_s | train CUDA |
+|---:|---:|---:|---:|---:|
+| 32 | -0.021731 | -0.005986 | 28.497 | 15.781 GB |
+| 64 | -0.007499 | -0.028401 | 48.258 | 15.782 GB |
+| 128 | -0.003388 | -0.003791 | 92.410 | 15.782 GB |
+
+Observacao:
+
+```text
+budget 32 foi o melhor ponto de validacao. Aumentar budget nao melhorou neste
+setup, provavelmente porque o rerank/prototipo ainda seleciona blocos fracos
+ou redundantes.
+```
+
+### Comparacao Contra LoRA
+
+Baseline no mesmo alvo/corpus:
+
+| metodo | validation delta | params | ganho val/param |
+|---|---:|---:|---:|
+| SAINT structured budget 32 | -0.021731 | 32 | 6.79e-04 |
+| LoRA rank 1 forward-hook | -0.165617 | 6144 | 2.70e-05 |
+
+Leitura:
+
+```text
+LoRA rank 1 vence em qualidade absoluta.
+SAINT budget 32 vence em ganho de validacao por parametro.
+```
+
+Isso e o primeiro resultado 14B mais claro para SAINT nesta fase:
+
+```text
+SAINT nao esta competindo com LoRA em qualidade total,
+mas mostra eficiencia extrema por parametro em budget muito pequeno.
+```
+
+### Veredito
+
+```text
+Marco 11 sugere que SAINT 14B deve focar compressao extrema primeiro.
+```
+
+A direcao mais promissora nao e tentar bater LoRA rank 1 em loss absoluta com
+dezenas de parametros. O eixo onde SAINT tem sinal e:
+
+```text
+ganho por parametro,
+checkpoint pequeno,
+delta local,
+memoria controlada.
+```
+
+## Proximo Marco
+
+Marco 12 deve consolidar SAINT como metodo de compressao extrema:
+
+- reportar sempre `validation_gain_per_parameter`;
+- comparar SAINT budget 16/32/64 contra LoRA rank 1 truncado por parametro
+  equivalente quando possivel;
+- testar mais camadas com budget 32;
+- testar `prototype_mode=activation` e `weight_value`;
+- testar `scale_granularity=block`, `row` e `col`;
+- selecionar automaticamente o melhor ponto por ganho de validacao por
+  parametro;
+- decidir criterio de passagem da Fase 15 como eficiencia por parametro, nao
+  qualidade absoluta contra LoRA.

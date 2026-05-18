@@ -6,6 +6,10 @@ from math import exp
 from time import perf_counter
 from typing import Any
 
+from saint.adapters.huggingface_delta_payload import (
+    delta_payload,
+    delta_structure_metadata,
+)
 from saint.adapters.huggingface_loading import load_causal_lm, model_dtype
 from saint.adapters.huggingface_routing import build_routed_deltas, merged_params
 from saint.adapters.huggingface_sparse_train import (
@@ -180,26 +184,6 @@ def _target_shapes(model, names: list[str]) -> dict[str, list[int]]:
     return {name: [int(params[name].shape[0]), int(params[name].shape[1])] for name in names}
 
 
-def _delta_payload(deltas, coordinates, shapes: dict[str, list[int]]) -> dict[str, Any]:
-    sparse = {}
-    for name, delta in deltas.items():
-        if name not in shapes:
-            continue
-        rows, cols = int(shapes[name][0]), int(shapes[name][1])
-        entries = []
-        row_indices, col_indices = coordinates[name]
-        for row, col, value in zip(
-            row_indices.detach().cpu().tolist(),
-            col_indices.detach().cpu().tolist(),
-            delta.detach().cpu().tolist(),
-        ):
-            if row < rows and col < cols and abs(float(value)) > 0.0:
-                entries.append([int(row), int(col), float(value)])
-        if entries:
-            sparse[name] = entries
-    return {"format": "saint_sparse_delta", "shapes": shapes, "values": sparse}
-
-
 def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     torch, functional_call, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     start = perf_counter()
@@ -291,6 +275,18 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         routing_block_size=int(metadata.get("routing_block_size", 1)),
         validation_rerank_max_candidates=metadata.get(
             "validation_rerank_max_candidates"
+        ),
+        validation_rerank_batch_size=int(
+            metadata.get("validation_rerank_batch_size", 1)
+        ),
+        structured_prototype_count=int(
+            metadata.get("structured_prototype_count", 1)
+        ),
+        structured_prototype_mode=str(
+            metadata.get("structured_prototype_mode", "weight_sign")
+        ),
+        structured_scale_granularity=str(
+            metadata.get("structured_scale_granularity", "block")
         ),
     )
     routing_elapsed = perf_counter() - routing_start
@@ -404,7 +400,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     parameter_count = int(sum(delta.numel() for delta in deltas.values()))
     tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * steps
     checkpoint_start = perf_counter()
-    delta_payload = _delta_payload(deltas, coordinates, target_shapes)
+    payload = delta_payload(deltas, coordinates, target_shapes)
     checkpoint_elapsed = perf_counter() - checkpoint_start
     cuda_peak = _cuda_peak(torch, device)
     stage_elapsed.update(
@@ -422,7 +418,8 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         optimizer_state_values=parameter_count * 2,
         elapsed_s=perf_counter() - start,
         metadata={
-            "delta_payload": delta_payload,
+            "delta_payload": payload,
+            "delta_structure": delta_structure_metadata(deltas, coordinates),
             "adapter": "huggingface_causal_lm",
             "autograd": True,
             "real_forward": True,
@@ -448,6 +445,18 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "routing_max_length": routing_length,
             "routing_batch_size": routing_batch_size,
             "routing_block_size": int(metadata.get("routing_block_size", 1)),
+            "validation_rerank_batch_size": int(
+                metadata.get("validation_rerank_batch_size", 1)
+            ),
+            "structured_prototype_count": int(
+                metadata.get("structured_prototype_count", 1)
+            ),
+            "structured_prototype_mode": str(
+                metadata.get("structured_prototype_mode", "weight_sign")
+            ),
+            "structured_scale_granularity": str(
+                metadata.get("structured_scale_granularity", "block")
+            ),
             "target_matrices": names,
             "train_only": train_only,
             "gradient_checkpointing": bool(metadata.get("gradient_checkpointing", False)),
