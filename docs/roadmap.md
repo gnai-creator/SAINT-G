@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 13 - Modelos Hugging Face Pequenos
 Fase anterior: Fase 12 concluida
-Proximo marco: Fase 13 Marco 8 - Grid de Hiperparametros HF
+Proximo marco: Fase 13 Marco 9 - Dataset Real e Multiseed
 ```
 
 Resumo do estado:
@@ -1692,16 +1692,52 @@ O formato SAINT atual salva mais contexto que o artefato LoRA,
 entao ainda falta uma comparacao delta-only de tamanho.
 ```
 
+### Marco 8 - Grid de Hiperparametros HF
+
+Status: **concluido**.
+
+Entregas:
+
+- modulo `saint/adapters/huggingface_grid.py`;
+- script `scripts/benchmark_huggingface_grid_phase13.py`;
+- grid de budgets e learning rates SAINT;
+- grid de ranks e learning rates LoRA;
+- artefato SAINT delta-only;
+- comparacao contra validation loss do modelo base;
+- sanity check de geracao em multiplos prompts;
+- resultados em JSON/Markdown.
+
+Resultado CUDA:
+
+| metodo | budget | rank | lr | params | val loss | delta vs base | ganho/param | bytes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| SAINT | 8 |  | 0.001 | 8 | 10.826005 | -0.000041 | 0.00000608 | 360 |
+| SAINT | 8 |  | 0.005 | 8 | 10.825827 | -0.000219 | 0.00005305 | 348 |
+| SAINT | 16 |  | 0.001 | 12 | 10.825991 | -0.000055 | 0.00000572 | 483 |
+| SAINT | 16 |  | 0.005 | 12 | 10.825816 | -0.000230 | 0.00005500 | 460 |
+| LoRA |  | 2 | 0.001 | 24 | 10.826046 | 0.000000 | 0.00000012 | 2733 |
+| LoRA |  | 2 | 0.005 | 24 | 10.826030 | -0.000016 | 0.00000131 | 2733 |
+| LoRA |  | 4 | 0.001 | 48 | 10.826044 | -0.000002 | 0.00000014 | 2797 |
+| LoRA |  | 4 | 0.005 | 48 | 10.826013 | -0.000033 | 0.00000129 | 2797 |
+
+Leitura:
+
+```text
+SAINT venceu LoRA neste grid curto em validation loss,
+ganho por parametro e tamanho de artefato delta-only.
+A geracao curta ainda nao mudou de forma observavel.
+```
+
 ### Proximo Marco
 
-Marco 8 - Grid de Hiperparametros HF:
+Marco 9 - Dataset Real e Multiseed:
 
-- testar grade de learning rates para SAINT e LoRA;
-- testar budgets SAINT maiores e ranks LoRA equivalentes por parametro;
-- salvar artefato SAINT delta-only para comparar tamanho de forma justa;
-- avaliar prompts multiplos;
-- medir retencao do modelo base com validacao separada;
-- repetir com mais seeds.
+- usar dataset externo real pequeno ou fixture baixavel;
+- medir perplexity em validacao com mais exemplos;
+- repetir grid com seeds `31`, `32` e `33`;
+- comparar contra LoRA com artefato carregado e aplicado no forward;
+- adicionar avaliacao de geracao com prompts e metricas simples;
+- decidir se Fase 13 ja pode fechar ou se precisa de um modelo pequeno maior.
 
 ## Fase 14 - Escala 3B
 

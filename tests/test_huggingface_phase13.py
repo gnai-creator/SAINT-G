@@ -6,6 +6,7 @@ import importlib.util
 from saint.checkpoints import write_json
 from saint.config import RuntimeConfig
 from saint.adapters.huggingface_benchmark import benchmark_hf_saint_vs_full
+from saint.adapters.huggingface_grid import run_hf_phase13_grid
 from saint.adapters.huggingface_sweep import run_hf_phase13_sweep
 from saint.adapters.huggingface_validation import run_hf_phase13_validation
 from saint.runtime import inspect_runtime, merge_runtime, resume_runtime, train_runtime
@@ -344,6 +345,49 @@ class HuggingFacePhase13Tests(unittest.TestCase):
             self.assertTrue(
                 all("validation_loss" in row for row in result["rows"])
             )
+
+    def test_huggingface_phase13_grid_writes_delta_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = Path(tmp) / "tiny_model"
+            corpus = Path(tmp) / "corpus.txt"
+            run_dir = Path(tmp) / "grid"
+            if not _write_tiny_hf_model(model_dir):
+                self.skipTest("transformers is not installed")
+            corpus.write_text(
+                "\n".join(
+                    [
+                        "simple ai node training",
+                        "saint trains compact deltas",
+                        "gradient maps choose useful weights",
+                        "checkpoint quality remains stable",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_hf_phase13_grid(
+                model_dir,
+                corpus,
+                run_dir,
+                steps=1,
+                saint_budgets=(4,),
+                saint_lrs=(0.001,),
+                lora_ranks=(1,),
+                lora_lrs=(0.001,),
+                device="cpu",
+                max_length=12,
+            )
+            methods = {row["method"] for row in result["rows"]}
+
+            self.assertTrue((run_dir / "grid_results.json").exists())
+            self.assertTrue((run_dir / "grid_results.md").exists())
+            self.assertIn("saint", methods)
+            self.assertIn("lora", methods)
+            self.assertIsNotNone(result["summary"]["best_saint"])
+            self.assertIsNotNone(result["summary"]["best_lora"])
+            self.assertIn("SAINT", result["generation"])
+            saint_rows = [row for row in result["rows"] if row["method"] == "saint"]
+            self.assertTrue(all(row["delta_only_bytes"] > 0 for row in saint_rows))
 
 
 if __name__ == "__main__":

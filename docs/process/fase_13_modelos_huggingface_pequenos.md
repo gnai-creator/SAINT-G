@@ -408,11 +408,106 @@ saint_merged: SAINT stairs stairs stairs stairs stairs stairs stairs stairs
 
 ## Proximo Marco
 
-Marco 8 deve melhorar a competicao e a avaliacao:
+## Marco 8 - Grid de Hiperparametros HF
 
-- testar grade de learning rates para SAINT e LoRA;
-- testar budgets SAINT maiores e ranks LoRA equivalentes por parametro;
-- salvar artefato SAINT delta-only para comparar tamanho de forma justa;
-- avaliar prompts multiplos;
-- medir retencao do modelo base com validacao separada;
-- repetir com mais seeds.
+Status: **concluido**.
+
+Este marco testa uma grade pequena de hiperparametros para SAINT e LoRA, e
+adiciona uma comparacao de tamanho mais justa usando artefato SAINT delta-only.
+
+### Entregas
+
+- modulo `saint/adapters/huggingface_grid.py`;
+- script `scripts/benchmark_huggingface_grid_phase13.py`;
+- grid de budgets SAINT;
+- grid de learning rates SAINT;
+- grid de ranks LoRA;
+- grid de learning rates LoRA;
+- artefato SAINT `saint_delta_only.json`;
+- comparacao contra validation loss do modelo base;
+- prompts multiplos para sanity check de geracao;
+- resultados em `grid_results.json` e `grid_results.md`.
+
+### Comando
+
+```bash
+python scripts/benchmark_huggingface_grid_phase13.py \
+  --model models/sshleifer_tiny_gpt2 \
+  --corpus data/phase13_tiny_corpus.txt \
+  --out runs/phase13_marco8_grid \
+  --device cuda \
+  --steps 6 \
+  --batch-size 3 \
+  --saint-budgets 8,16 \
+  --saint-lrs 0.001,0.005 \
+  --lora-ranks 2,4 \
+  --lora-lrs 0.001,0.005
+```
+
+### Resultado CUDA
+
+Base validation loss:
+
+```text
+10.826045989990234
+```
+
+| metodo | budget | rank | lr | parametros | val loss | delta vs base | ganho/param | bytes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| SAINT | 8 |  | 0.001 | 8 | 10.826005 | -0.000041 | 0.00000608 | 360 |
+| SAINT | 8 |  | 0.005 | 8 | 10.825827 | -0.000219 | 0.00005305 | 348 |
+| SAINT | 16 |  | 0.001 | 12 | 10.825991 | -0.000055 | 0.00000572 | 483 |
+| SAINT | 16 |  | 0.005 | 12 | 10.825816 | -0.000230 | 0.00005500 | 460 |
+| LoRA |  | 2 | 0.001 | 24 | 10.826046 | 0.000000 | 0.00000012 | 2733 |
+| LoRA |  | 2 | 0.005 | 24 | 10.826030 | -0.000016 | 0.00000131 | 2733 |
+| LoRA |  | 4 | 0.001 | 48 | 10.826044 | -0.000002 | 0.00000014 | 2797 |
+| LoRA |  | 4 | 0.005 | 48 | 10.826013 | -0.000033 | 0.00000129 | 2797 |
+
+Melhor SAINT:
+
+```text
+budget: 16
+lr: 0.005
+validation_loss: 10.825816
+delta_only_bytes: 460
+gain_per_parameter: 0.00005500
+```
+
+Melhor LoRA:
+
+```text
+rank: 4
+lr: 0.005
+validation_loss: 10.826013
+artifact_bytes: 2797
+gain_per_parameter: 0.00000129
+```
+
+### Prompts
+
+```text
+SAINT      -> SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+Checkpoint -> Checkpoint stairs stairs stairs stairs stairs stairs stairs stairs
+LoRA       -> LoRA stairs stairs stairs stairs stairs stairs stairs stairs
+```
+
+### Leitura Tecnica
+
+- neste grid curto, SAINT venceu LoRA em validation loss, ganho por parametro e
+  tamanho de artefato delta-only;
+- o melhor SAINT ainda muda pouco a geracao, entao prompts continuam sendo
+  sanity check de pipeline;
+- a comparacao de tamanho ficou mais justa com `saint_delta_only.json`, enquanto
+  o checkpoint runtime completo continua maior por carregar manifestos, metricas
+  e estado de otimizador.
+
+## Proximo Marco
+
+Marco 9 deve tornar a avaliacao menos sintetica:
+
+- usar dataset externo real pequeno ou fixture baixavel;
+- medir perplexity em validacao com mais exemplos;
+- repetir grid com seeds `31`, `32` e `33`;
+- comparar contra LoRA com artefato carregado e aplicado no forward;
+- adicionar avaliacao de geracao com prompts e metricas simples;
+- decidir se Fase 13 ja pode fechar ou se precisa de um modelo pequeno maior.
