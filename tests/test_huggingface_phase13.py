@@ -7,6 +7,7 @@ from saint.checkpoints import write_json
 from saint.config import RuntimeConfig
 from saint.adapters.huggingface_benchmark import benchmark_hf_saint_vs_full
 from saint.adapters.huggingface_sweep import run_hf_phase13_sweep
+from saint.adapters.huggingface_validation import run_hf_phase13_validation
 from saint.runtime import inspect_runtime, merge_runtime, resume_runtime, train_runtime
 
 
@@ -298,6 +299,50 @@ class HuggingFacePhase13Tests(unittest.TestCase):
             )
             self.assertTrue(
                 all("merged_perplexity" in row for row in rows)
+            )
+
+    def test_huggingface_phase13_validation_writes_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = Path(tmp) / "tiny_model"
+            corpus = Path(tmp) / "corpus.txt"
+            run_dir = Path(tmp) / "validation"
+            if not _write_tiny_hf_model(model_dir):
+                self.skipTest("transformers is not installed")
+            corpus.write_text(
+                "\n".join(
+                    [
+                        "simple ai node training",
+                        "saint trains compact deltas",
+                        "gradient maps choose useful weights",
+                        "checkpoint quality remains stable",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_hf_phase13_validation(
+                model_dir,
+                corpus,
+                run_dir,
+                steps=1,
+                budget=4,
+                lora_rank=1,
+                device="cpu",
+                max_length=12,
+            )
+            methods = {row["method"] for row in result["rows"]}
+
+            self.assertEqual(result["train_examples"], 3)
+            self.assertEqual(result["validation_examples"], 1)
+            self.assertIn("saint", methods)
+            self.assertIn("lora", methods)
+            self.assertIn("full", methods)
+            self.assertTrue((run_dir / "validation_results.json").exists())
+            self.assertTrue((run_dir / "validation_results.md").exists())
+            self.assertTrue((run_dir / "lora_rank_1.pt").exists())
+            self.assertIn("saint_merged", result["generation"])
+            self.assertTrue(
+                all("validation_loss" in row for row in result["rows"])
             )
 
 

@@ -1,0 +1,12 @@
+Simple AI Node Training studies compact model updates.
+SAINT keeps the base model frozen and trains sparse deltas.
+Codebooks can share repeated update patterns across matrices.
+Sensitivity maps help choose which regions should receive capacity.
+Checkpoint quality must survive resume and merge.
+LoRA is a strong baseline for low parameter fine tuning.
+Full fine tuning changes every trainable weight and is expensive.
+Validation loss must be measured on held out text.
+Small language models are useful for fast research loops.
+CUDA memory and tokens per second reveal practical training cost.
+Merged checkpoints should remain directly evaluable.
+Generation quality needs a small prompt based sanity check.

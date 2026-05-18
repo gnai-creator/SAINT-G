@@ -61,6 +61,26 @@ def _load_batch(tokenizer, texts: list[str], *, max_length: int, device):
     return input_ids, attention_mask
 
 
+def _load_batches(
+    tokenizer,
+    texts: list[str],
+    *,
+    max_length: int,
+    device,
+    batch_size: int,
+):
+    size = max(1, batch_size)
+    return [
+        _load_batch(
+            tokenizer,
+            texts[index:index + size],
+            max_length=max_length,
+            device=device,
+        )
+        for index in range(0, len(texts), size)
+    ]
+
+
 def _target_names(model, metadata: dict[str, Any]) -> list[str]:
     keywords = tuple(metadata.get("target_keywords", ["c_attn.weight", "c_proj.weight", "lm_head.weight"]))
     candidates = [
@@ -106,6 +126,15 @@ def _loss(functional_call, model, params, input_ids, attention_mask):
     return functional_call(model, params, (), kwargs).loss
 
 
+def _loss_value(functional_call, model, params, input_ids, attention_mask) -> float:
+    return float(
+        _loss(functional_call, model, params, input_ids, attention_mask)
+        .detach()
+        .cpu()
+        .item()
+    )
+
+
 def _delta_payload(deltas, masks, base_weights) -> dict[str, list[list[float]]]:
     payload = {
         name: [[0.0 for _ in row] for row in matrix]
@@ -138,9 +167,24 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
+    train_texts = _texts(metadata)
     input_ids, attention_mask = _load_batch(
         tokenizer,
-        _texts(metadata),
+        train_texts,
+        max_length=int(metadata.get("max_length", 32)),
+        device=device,
+    )
+    train_batches = _load_batches(
+        tokenizer,
+        train_texts,
+        max_length=int(metadata.get("max_length", 32)),
+        device=device,
+        batch_size=int(metadata.get("batch_size", len(train_texts))),
+    )
+    validation_texts = metadata.get("validation_texts")
+    val_ids, val_mask = _load_batch(
+        tokenizer,
+        [str(item) for item in validation_texts] if isinstance(validation_texts, list) else _texts(metadata),
         max_length=int(metadata.get("max_length", 32)),
         device=device,
     )
@@ -152,18 +196,26 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         parameter_budget=max(1, config.parameter_budget),
     )
     optimizer = torch.optim.AdamW(list(deltas.values()), lr=float(metadata.get("learning_rate", 1e-3)))
-    initial_loss = float(_loss(functional_call, model, _merged_params(model, deltas, masks), input_ids, attention_mask).detach().cpu().item())
+    initial_loss = _loss_value(functional_call, model, _merged_params(model, deltas, masks), input_ids, attention_mask)
     steps = max(1, int(config.steps))
     train_start = perf_counter()
     for _ in range(steps):
         optimizer.zero_grad()
-        loss = _loss(functional_call, model, _merged_params(model, deltas, masks), input_ids, attention_mask)
-        loss.backward()
+        for batch_ids, batch_mask in train_batches:
+            loss = _loss(
+                functional_call,
+                model,
+                _merged_params(model, deltas, masks),
+                batch_ids,
+                batch_mask,
+            ) / len(train_batches)
+            loss.backward()
         optimizer.step()
     train_elapsed = max(perf_counter() - train_start, 1e-9)
-    final_loss = float(_loss(functional_call, model, _merged_params(model, deltas, masks), input_ids, attention_mask).detach().cpu().item())
+    final_loss = _loss_value(functional_call, model, _merged_params(model, deltas, masks), input_ids, attention_mask)
+    validation_loss = _loss_value(functional_call, model, _merged_params(model, deltas, masks), val_ids, val_mask)
     parameter_count = int(sum(mask.sum().item() for mask in masks.values()))
-    tokens_seen = int(input_ids.numel()) * steps
+    tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * steps
     cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
         if device.type == "cuda"
@@ -184,8 +236,11 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "device": str(device),
             "initial_loss": initial_loss,
             "perplexity": exp(min(final_loss, 20.0)),
+            "validation_loss": validation_loss,
+            "validation_perplexity": exp(min(validation_loss, 20.0)),
             "tokens_per_s": tokens_seen / train_elapsed,
             "tokens_seen": tokens_seen,
+            "batch_count": len(train_batches),
             "cuda_peak_bytes": cuda_peak,
             "target_matrices": names,
             "marco": "fase_13_marco_3",

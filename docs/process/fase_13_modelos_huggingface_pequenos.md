@@ -338,11 +338,81 @@ python scripts/benchmark_huggingface_phase13.py \
 
 ## Proximo Marco
 
-Marco 7 deve aproximar a tarefa de um fine-tuning real:
+## Marco 7 - Dataset Externo e Validacao
 
-- usar dataset textual externo pequeno;
-- separar treino e validacao;
-- acumular gradiente em mais batches;
-- testar learning rates diferentes para SAINT e LoRA;
-- salvar checkpoint SAINT e adaptador LoRA em formatos comparaveis;
-- medir qualidade de geracao curta antes e depois do merge.
+Status: **concluido**.
+
+Este marco substitui o dataset embutido por um corpus textual pequeno versionado
+e separa treino de validacao.
+
+### Entregas
+
+- corpus `data/phase13_tiny_corpus.txt`;
+- modulo `saint/adapters/huggingface_validation.py`;
+- script `scripts/benchmark_huggingface_validation_phase13.py`;
+- split treino/validacao;
+- acumulacao de gradiente em multiplos batches;
+- learning rates separados para SAINT, LoRA e full fine-tuning;
+- checkpoint SAINT e artefato LoRA salvos para comparacao;
+- qualidade de geracao curta antes e depois do merge SAINT;
+- resultados em `validation_results.json` e `validation_results.md`.
+
+### Comando
+
+```bash
+python scripts/benchmark_huggingface_validation_phase13.py \
+  --model models/sshleifer_tiny_gpt2 \
+  --corpus data/phase13_tiny_corpus.txt \
+  --out runs/phase13_marco7_validation \
+  --device cuda \
+  --steps 8 \
+  --budget 8 \
+  --lora-rank 4 \
+  --batch-size 3 \
+  --saint-lr 0.001 \
+  --lora-lr 0.005 \
+  --full-lr 0.0001
+```
+
+### Resultado CUDA
+
+```text
+train_examples: 9
+validation_examples: 3
+batch_size: 3
+```
+
+| metodo | budget | rank | parametros | val loss | perplexity merge | artefato bytes | ganho/param |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| SAINT | 8 |  | 8 | 10.825989 | 50311.490508 | 27679 | 0.00000894 |
+| LoRA |  | 4 | 48 | 10.825988 | 50311.442528 | 2757 | 0.00000230 |
+| full |  |  | 102714 | 10.823018 | 50162.252171 | 0 | 0.00000004 |
+
+Geracao curta:
+
+```text
+prompt: SAINT
+base: SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+saint_merged: SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+```
+
+### Leitura Tecnica
+
+- full fine-tuning ainda vence em validation loss absoluta;
+- SAINT manteve melhor ganho por parametro que LoRA rank 4 neste run;
+- LoRA tem artefato menor no formato atual porque salva apenas A/B, enquanto
+  SAINT salva checkpoint runtime completo com manifesto, deltas, metricas e
+  estado de otimizador;
+- a geracao curta nao mudou neste modelo minusculo, entao ela deve ser tratada
+  apenas como sanity check de pipeline, nao como evidencia de qualidade.
+
+## Proximo Marco
+
+Marco 8 deve melhorar a competicao e a avaliacao:
+
+- testar grade de learning rates para SAINT e LoRA;
+- testar budgets SAINT maiores e ranks LoRA equivalentes por parametro;
+- salvar artefato SAINT delta-only para comparar tamanho de forma justa;
+- avaliar prompts multiplos;
+- medir retencao do modelo base com validacao separada;
+- repetir com mais seeds.

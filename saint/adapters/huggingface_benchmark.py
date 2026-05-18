@@ -53,6 +53,22 @@ def _batch(tokenizer, device, *, max_length: int, texts: list[str] | None = None
     return input_ids, mask.to(device) if mask is not None else None
 
 
+def _batches(
+    tokenizer,
+    device,
+    *,
+    max_length: int,
+    texts: list[str] | None = None,
+    batch_size: int | None = None,
+):
+    values = texts or _texts()
+    size = max(1, batch_size or len(values))
+    return [
+        _batch(tokenizer, device, max_length=max_length, texts=values[index:index + size])
+        for index in range(0, len(values), size)
+    ]
+
+
 def _loss(model, input_ids, attention_mask):
     kwargs = {"input_ids": input_ids, "labels": input_ids}
     if attention_mask is not None:
@@ -82,6 +98,9 @@ def _full_finetune(
     learning_rate: float,
     device_name: str,
     max_length: int,
+    texts: list[str] | None = None,
+    validation_texts: list[str] | None = None,
+    batch_size: int | None = None,
 ) -> dict[str, Any]:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     torch.manual_seed(seed)
@@ -93,19 +112,36 @@ def _full_finetune(
         local_files_only=True,
     ).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
-    input_ids, attention_mask = _batch(tokenizer, device, max_length=max_length)
+    train_batches = _batches(
+        tokenizer,
+        device,
+        max_length=max_length,
+        texts=texts,
+        batch_size=batch_size,
+    )
+    input_ids, attention_mask = train_batches[0]
+    val_input_ids, val_attention_mask = _batch(
+        tokenizer,
+        device,
+        max_length=max_length,
+        texts=validation_texts or texts,
+    )
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     initial_loss = float(_loss(model, input_ids, attention_mask).detach().cpu().item())
     train_start = perf_counter()
     for _ in range(max(1, steps)):
         optimizer.zero_grad()
-        loss = _loss(model, input_ids, attention_mask)
-        loss.backward()
+        for batch_ids, batch_mask in train_batches:
+            loss = _loss(model, batch_ids, batch_mask) / len(train_batches)
+            loss.backward()
         optimizer.step()
     elapsed = max(perf_counter() - train_start, 1e-9)
     final_loss = float(_loss(model, input_ids, attention_mask).detach().cpu().item())
-    tokens_seen = int(input_ids.numel()) * max(1, steps)
+    validation_loss = float(
+        _loss(model, val_input_ids, val_attention_mask).detach().cpu().item()
+    )
+    tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * max(1, steps)
     cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
         if device.type == "cuda"
@@ -116,6 +152,7 @@ def _full_finetune(
         "seed": seed,
         "initial_loss": initial_loss,
         "train_loss": final_loss,
+        "validation_loss": validation_loss,
         "loss_delta": final_loss - initial_loss,
         "parameter_count": sum(param.numel() for param in model.parameters()),
         "gain_per_parameter": _gain_per_parameter(
@@ -176,6 +213,10 @@ def _lora_finetune(
     rank: int,
     alpha: float,
     max_targets: int,
+    texts: list[str] | None = None,
+    validation_texts: list[str] | None = None,
+    artifact_path: str | Path | None = None,
+    batch_size: int | None = None,
 ) -> dict[str, Any]:
     torch, functional_call, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     torch.manual_seed(seed)
@@ -187,7 +228,20 @@ def _lora_finetune(
         local_files_only=True,
     ).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
-    input_ids, attention_mask = _batch(tokenizer, device, max_length=max_length)
+    train_batches = _batches(
+        tokenizer,
+        device,
+        max_length=max_length,
+        texts=texts,
+        batch_size=batch_size,
+    )
+    input_ids, attention_mask = train_batches[0]
+    val_input_ids, val_attention_mask = _batch(
+        tokenizer,
+        device,
+        max_length=max_length,
+        texts=validation_texts or texts,
+    )
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
@@ -206,14 +260,15 @@ def _lora_finetune(
     train_start = perf_counter()
     for _ in range(max(1, steps)):
         optimizer.zero_grad()
-        loss = _functional_loss(
-            functional_call,
-            model,
-            _lora_merged_params(model, lora, rank=rank, alpha=alpha),
-            input_ids,
-            attention_mask,
-        )
-        loss.backward()
+        for batch_ids, batch_mask in train_batches:
+            loss = _functional_loss(
+                functional_call,
+                model,
+                _lora_merged_params(model, lora, rank=rank, alpha=alpha),
+                batch_ids,
+                batch_mask,
+            ) / len(train_batches)
+            loss.backward()
         optimizer.step()
     elapsed = max(perf_counter() - train_start, 1e-9)
     final_loss = float(
@@ -225,8 +280,31 @@ def _lora_finetune(
             attention_mask,
         ).detach().cpu().item()
     )
+    validation_loss = float(
+        _functional_loss(
+            functional_call,
+            model,
+            _lora_merged_params(model, lora, rank=rank, alpha=alpha),
+            val_input_ids,
+            val_attention_mask,
+        ).detach().cpu().item()
+    )
+    artifact_bytes = 0
+    if artifact_path is not None:
+        artifact_target = Path(artifact_path)
+        artifact_target.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "rank": rank,
+                "alpha": alpha,
+                "target_matrices": names,
+                "state": {name: param.detach().cpu() for name, param in lora.items()},
+            },
+            artifact_target,
+        )
+        artifact_bytes = artifact_target.stat().st_size
     parameter_count = sum(param.numel() for param in lora.values())
-    tokens_seen = int(input_ids.numel()) * max(1, steps)
+    tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * max(1, steps)
     cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
         if device.type == "cuda"
@@ -237,6 +315,7 @@ def _lora_finetune(
         "seed": seed,
         "initial_loss": initial_loss,
         "train_loss": final_loss,
+        "validation_loss": validation_loss,
         "loss_delta": final_loss - initial_loss,
         "parameter_count": parameter_count,
         "gain_per_parameter": _gain_per_parameter(
@@ -249,6 +328,7 @@ def _lora_finetune(
         "cuda_peak_bytes": cuda_peak,
         "device": str(device),
         "target_matrices": names,
+        "artifact_bytes": artifact_bytes,
     }
 
 

@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 13 - Modelos Hugging Face Pequenos
 Fase anterior: Fase 12 concluida
-Proximo marco: Fase 13 Marco 7 - Dataset Externo e Validacao
+Proximo marco: Fase 13 Marco 8 - Grid de Hiperparametros HF
 ```
 
 Resumo do estado:
@@ -1651,16 +1651,57 @@ SAINT ainda perde em loss absoluta contra full fine-tuning,
 mas supera LoRA em ganho por parametro neste sweep curto e usa menos pico CUDA.
 ```
 
+### Marco 7 - Dataset Externo e Validacao
+
+Status: **concluido**.
+
+Entregas:
+
+- corpus `data/phase13_tiny_corpus.txt`;
+- modulo `saint/adapters/huggingface_validation.py`;
+- script `scripts/benchmark_huggingface_validation_phase13.py`;
+- split treino/validacao;
+- acumulacao de gradiente com `batch_size`;
+- learning rates separados para SAINT, LoRA e full fine-tuning;
+- checkpoint SAINT e artefato LoRA salvos;
+- geracao curta antes e depois do merge SAINT;
+- resultados em JSON/Markdown.
+
+Resultado CUDA:
+
+| metodo | budget | rank | params | val loss | ppl merge | artefato bytes | ganho/param |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| SAINT | 8 |  | 8 | 10.825989 | 50311.490508 | 27679 | 0.00000894 |
+| LoRA |  | 4 | 48 | 10.825988 | 50311.442528 | 2757 | 0.00000230 |
+| full |  |  | 102714 | 10.823018 | 50162.252171 | 0 | 0.00000004 |
+
+Geracao curta:
+
+```text
+prompt: SAINT
+base: SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+saint_merged: SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+```
+
+Leitura:
+
+```text
+SAINT ainda perde em loss absoluta para full fine-tuning,
+mas manteve melhor ganho por parametro que LoRA rank 4 neste run.
+O formato SAINT atual salva mais contexto que o artefato LoRA,
+entao ainda falta uma comparacao delta-only de tamanho.
+```
+
 ### Proximo Marco
 
-Marco 7 - Dataset Externo e Validacao:
+Marco 8 - Grid de Hiperparametros HF:
 
-- usar dataset textual externo pequeno;
-- separar treino e validacao;
-- acumular gradiente em mais batches;
-- testar learning rates diferentes para SAINT e LoRA;
-- salvar checkpoint SAINT e adaptador LoRA em formatos comparaveis;
-- medir qualidade de geracao curta antes e depois do merge.
+- testar grade de learning rates para SAINT e LoRA;
+- testar budgets SAINT maiores e ranks LoRA equivalentes por parametro;
+- salvar artefato SAINT delta-only para comparar tamanho de forma justa;
+- avaliar prompts multiplos;
+- medir retencao do modelo base com validacao separada;
+- repetir com mais seeds.
 
 ## Fase 14 - Escala 3B
 
