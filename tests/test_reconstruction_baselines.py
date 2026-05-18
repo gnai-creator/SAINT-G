@@ -9,6 +9,8 @@ from saint.reconstruction import (
     multi_scale_codebook_reconstruction,
     original_reconstruction,
     repeated_block_matrix,
+    residual_codebook_reconstruction,
+    scaled_block_codebook_reconstruction,
     uniform_quantization_reconstruction,
 )
 
@@ -80,6 +82,32 @@ class ReconstructionBaselineTests(unittest.TestCase):
 
         self.assertLess(metrics.relative_l1_error, 0.05)
         self.assertEqual(result.parameter_count, 9)
+
+    def test_scaled_block_codebook_runs(self):
+        matrix = repeated_block_matrix(8, 8, block_size=2, prototypes=2, seed=3)
+
+        result = scaled_block_codebook_reconstruction(
+            matrix,
+            block_size=2,
+            quantization_step=0.1,
+        )
+
+        self.assertEqual(result.name, "scaled_block_codebook_2")
+        self.assertIn("has_block_scales", result.metadata)
+
+    def test_residual_codebook_runs(self):
+        matrix = repeated_block_matrix(8, 8, block_size=2, prototypes=2, seed=3)
+
+        result = residual_codebook_reconstruction(
+            matrix,
+            coarse_block_size=4,
+            residual_block_size=2,
+            quantization_step=0.1,
+        )
+        metrics = reconstruction_error(matrix, result.reconstructed)
+
+        self.assertEqual(result.name, "residual_codebook")
+        self.assertLessEqual(metrics.relative_l1_error, 0.01)
 
 
 if __name__ == "__main__":

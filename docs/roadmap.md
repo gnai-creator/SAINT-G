@@ -27,8 +27,8 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 3 - Roteador de Blocos
-Fase anterior: Fase 2 concluida
+Fase atual: Fase 4 - Treino de Camada Linear
+Fase anterior: Fase 3 concluida
 Proximo marco: Marco B - Prova de Aprendizado
 ```
 
@@ -39,7 +39,7 @@ Resumo do estado:
 | 0 | Fundacao Conceitual | Concluida |
 | 1 | Biblioteca de Blocos | Concluida |
 | 2 | Benchmark de Reconstrucao | Concluida |
-| 3 | Roteador de Blocos | Proxima |
+| 3 | Roteador de Blocos | Concluida |
 | 4 | Treino de Camada Linear | Pendente |
 | 5 | Mini-Transformer | Pendente |
 | 6+ | Escala e runtime completo | Pendente |
@@ -266,7 +266,7 @@ Prosseguir somente se o codebook multi-escala mostrar vantagem clara em pelo men
 
 ## 4. Fase 3 - Roteador de Blocos
 
-Status: **proxima fase**.
+Status: **concluida**.
 
 ### Objetivo
 
@@ -311,6 +311,82 @@ regiao A -> congelada
 regiao B -> codebook 8x8
 regiao C -> codebook 4x4 + refinamento 2x2
 regiao D -> delta livre
+```
+
+### Resultado
+
+Implementado:
+
+- `saint.routing`;
+- roteador por erro de reconstrucao;
+- roteador por score de orcamento;
+- roteador com `freeze/zero_delta`;
+- sensibilidade proxy por norma L1 da regiao;
+- orcamento duro por metodo;
+- score ponderado por sensibilidade;
+- codebook com escala por bloco;
+- codebook residual;
+- baseline `routed_codebook`;
+- baseline `routed_budget_first`;
+- baseline `routed_sensitivity_budget`;
+- testes unitarios;
+- comparacao contra `block_codebook_4` e `hierarchical_codebook`.
+
+Resultado em matrizes reais:
+
+```text
+routed_quality_first reduz erro medio para 0.0003,
+mas compressao media fica 0.94.
+
+routed_budget_first preserva erro medio 0.0028,
+mas compressao media fica 0.97 e ainda nao atinge alvo 1.1.
+```
+
+A busca de `parameter_weight` foi adicionada:
+
+```text
+routed_budget_search erro medio 0.0080,
+compressao media 1.01,
+criterio automatico ainda falha para alvo 1.1.
+```
+
+O sweep de `quantization_step` encontrou o primeiro ponto aprovado:
+
+```text
+routed_budget_first
+quantization_step: 0.0869
+erro medio: 0.0991
+compressao media: 1.1023
+```
+
+Esse resultado passa o criterio minimo configurado:
+
+```text
+erro relativo medio <= 0.1
+compressao media >= 1.1
+```
+
+O roteador com freeze e sensibilidade comprime muito mais:
+
+```text
+routed_sensitivity_budget erro medio 0.7441,
+compressao media 7.73.
+```
+
+Esse resultado nao e suficiente para aprovar a tecnica em reconstrucao de peso
+bruto, mas e coerente com a proposta de SAINT para treino de deltas: congelar
+uma regiao deve significar nao aplicar delta, mantendo o peso base intacto.
+
+Tambem foram testados codebook com escala por bloco e codebook residual. Em
+matrizes reais 64x64, eles ainda nao melhoraram o criterio automatico.
+
+Conclusao:
+
+```text
+roteador melhora qualidade;
+orcamento melhora compressao de forma limitada;
+Fase 3 passa no criterio minimo de reconstrucao;
+freeze melhora compressao, mas precisa ser validado em treino de deltas na Fase 4.
 ```
 
 ## 5. Fase 4 - Treino de Camada Linear

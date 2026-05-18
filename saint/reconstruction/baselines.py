@@ -122,6 +122,132 @@ def block_codebook_reconstruction(
     )
 
 
+def _flatten(matrix: Matrix) -> list[float]:
+    return [float(value) for row in matrix for value in row]
+
+
+def _scale_for_block(block: MatrixBlock, prototype: MatrixBlock) -> float:
+    block_values = _flatten(block.values)
+    prototype_values = _flatten(prototype.values)
+    denom = sum(value * value for value in prototype_values)
+    if denom == 0.0:
+        return 0.0
+    return sum(a * b for a, b in zip(block_values, prototype_values)) / denom
+
+
+def _scaled_values(prototype: MatrixBlock, factor: float) -> tuple[tuple[float, ...], ...]:
+    return tuple(
+        tuple(float(value) * factor for value in row)
+        for row in prototype.values
+    )
+
+
+def _normalized_block_signature(
+    block: MatrixBlock,
+    *,
+    quantization_step: float,
+) -> tuple[float, ...]:
+    values = _flatten(block.values)
+    norm = sum(value * value for value in values) ** 0.5
+    if norm == 0.0:
+        return tuple(0.0 for _ in values)
+    return tuple(round((value / norm) / quantization_step) for value in values)
+
+
+def scaled_block_codebook_reconstruction(
+    matrix: Matrix,
+    *,
+    block_size: int | tuple[int, int],
+    quantization_step: float = 0.1,
+) -> ReconstructionResult:
+    """Block codebook with one learned scalar per block assignment."""
+
+    start = perf_counter()
+    rows, cols = shape(matrix)
+    blocks = partition_matrix(matrix, block_size=block_size)
+    groups: dict[tuple[float, ...], list[MatrixBlock]] = {}
+    for block in blocks:
+        signature = _normalized_block_signature(
+            block,
+            quantization_step=quantization_step,
+        )
+        groups.setdefault(signature, []).append(block)
+    prototype_by_position: dict[tuple[int, int], MatrixBlock] = {}
+    prototype_values = 0
+    for group in groups.values():
+        prototype = group[0]
+        prototype_values += prototype.height * prototype.width
+        for block in group:
+            prototype_by_position[(block.row, block.col)] = prototype
+
+    reconstructed_blocks = []
+    for block in blocks:
+        prototype = prototype_by_position[(block.row, block.col)]
+        factor = _scale_for_block(block, prototype)
+        reconstructed_blocks.append(
+            MatrixBlock(
+                row=block.row,
+                col=block.col,
+                row_start=block.row_start,
+                col_start=block.col_start,
+                height=block.height,
+                width=block.width,
+                values=_scaled_values(prototype, factor),
+            )
+        )
+    reconstructed = reconstruct_matrix(reconstructed_blocks, original_shape=(rows, cols))
+    return ReconstructionResult(
+        name=f"scaled_block_codebook_{block_size}",
+        reconstructed=[[float(value) for value in row] for row in reconstructed],
+        parameter_count=prototype_values + len(blocks) * 2,
+        elapsed_s=perf_counter() - start,
+        metadata={
+            "block_size": block_size,
+            "prototype_count": len(groups),
+            "block_count": len(blocks),
+            "has_block_scales": True,
+        },
+    )
+
+
+def residual_codebook_reconstruction(
+    matrix: Matrix,
+    *,
+    coarse_block_size: int = 8,
+    residual_block_size: int = 2,
+    quantization_step: float = 0.1,
+) -> ReconstructionResult:
+    """Coarse codebook plus fine residual codebook."""
+
+    start = perf_counter()
+    coarse = block_codebook_reconstruction(
+        matrix,
+        block_size=coarse_block_size,
+        signature_mode="quantized",
+        quantization_step=quantization_step,
+    )
+    residual = subtract(matrix, coarse.reconstructed)
+    residual_recon = block_codebook_reconstruction(
+        residual,
+        block_size=residual_block_size,
+        signature_mode="quantized",
+        quantization_step=quantization_step,
+    )
+    reconstructed = add(coarse.reconstructed, residual_recon.reconstructed)
+    return ReconstructionResult(
+        name="residual_codebook",
+        reconstructed=reconstructed,
+        parameter_count=coarse.parameter_count + residual_recon.parameter_count,
+        elapsed_s=perf_counter() - start,
+        metadata={
+            "coarse_block_size": coarse_block_size,
+            "residual_block_size": residual_block_size,
+            "coarse_params": coarse.parameter_count,
+            "residual_params": residual_recon.parameter_count,
+        },
+    )
+
+
 def multi_scale_codebook_reconstruction(
     matrix: Matrix,
     *,

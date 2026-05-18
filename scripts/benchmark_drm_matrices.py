@@ -20,8 +20,15 @@ from saint.reconstruction import (
     low_rank_reconstruction,
     multi_scale_codebook_reconstruction,
     original_reconstruction,
+    residual_codebook_reconstruction,
+    routed_budget_reconstruction,
+    routed_codebook_reconstruction,
+    routed_sensitivity_budget_reconstruction,
     run_reconstruction_benchmark,
+    search_routed_budget_reconstruction,
+    scaled_block_codebook_reconstruction,
     uniform_quantization_reconstruction,
+    evaluate_method_against_thresholds,
 )
 
 
@@ -181,17 +188,99 @@ def main() -> int:
             signature_mode="quantized",
             quantization_step=args.quantization_step,
         ),
+        partial(
+            scaled_block_codebook_reconstruction,
+            block_size=4,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            residual_codebook_reconstruction,
+            coarse_block_size=8,
+            residual_block_size=2,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            routed_codebook_reconstruction,
+            region_size=8,
+            candidate_block_sizes=(4, 2),
+            error_threshold=0.1,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            routed_budget_reconstruction,
+            region_size=8,
+            candidate_block_sizes=(4, 2),
+            error_weight=1.0,
+            parameter_weight=0.35,
+            target_compression=1.1,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            routed_budget_reconstruction,
+            region_size=8,
+            candidate_block_sizes=(4, 2),
+            error_weight=1.0,
+            parameter_weight=0.35,
+            target_compression=1.1,
+            include_free_delta=False,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            search_routed_budget_reconstruction,
+            parameter_weights=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0),
+            region_size=8,
+            candidate_block_sizes=(4, 2),
+            target_compression=1.1,
+            max_relative_l1_error=0.1,
+            quantization_step=args.quantization_step,
+        ),
+        partial(
+            routed_sensitivity_budget_reconstruction,
+            region_size=8,
+            candidate_block_sizes=(4, 2),
+            quantization_step=0.1,
+            error_weight=1.0,
+            parameter_weight=0.75,
+            method_budgets={"free_delta": 0.05, "codebook_2": 0.20},
+            target_compression=1.1,
+            include_freeze=True,
+            include_free_delta=True,
+        ),
     ]
     results = run_reconstruction_benchmark(cases, baselines)
     rows = [_result_to_dict(result) for result in results]
+    decisions = [
+        evaluate_method_against_thresholds(
+            results,
+            method_name=method,
+            max_avg_relative_l1_error=0.1,
+            min_avg_compression_ratio=1.1,
+        )
+        for method in (
+            "block_codebook_4",
+            "hierarchical_codebook",
+            "routed_quality_first",
+            "routed_budget_first",
+            "routed_budget_search",
+            "routed_sensitivity_budget",
+            "scaled_block_codebook_4",
+            "residual_codebook",
+        )
+    ]
 
     json_path = out_dir / "drm_matrix_benchmark.json"
+    decisions_path = out_dir / "drm_matrix_benchmark_decisions.json"
     md_path = out_dir / "drm_matrix_benchmark.md"
     json_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    decisions_path.write_text(
+        json.dumps([decision.__dict__ for decision in decisions], indent=2),
+        encoding="utf-8",
+    )
     _write_markdown(md_path, rows)
 
     print(f"cases={len(cases)} results={len(rows)}")
     print(f"json={json_path}")
+    print(f"decisions={decisions_path}")
     print(f"markdown={md_path}")
     return 0
 
