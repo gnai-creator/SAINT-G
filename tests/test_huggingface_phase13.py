@@ -203,7 +203,7 @@ class HuggingFacePhase13Tests(unittest.TestCase):
                 parameter_budget=8,
                 metadata={
                     "model_name_or_path": str(model_dir),
-                    "max_dim": 64,
+                    "max_dim": 4,
                     "max_matrices": 4,
                     "checkpoint_dtype": "float16",
                     "checkpoint_shard_bytes": 256,

@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 14 - Escala 3B
 Fase anterior: Fase 13 concluida com ressalvas
-Proximo marco: Fase 14 Marco 1 - Ponte HF Maior que Tiny GPT-2
+Proximo marco: Fase 14 Marco 2 - Otimizar SAINT em GPT-2 Small
 ```
 
 Resumo do estado:
@@ -50,7 +50,8 @@ Resumo do estado:
 | 11 | Checkpoint Escalavel | Concluida |
 | 12 | Validacao de Escala de Checkpoint | Concluida |
 | 13 | Modelos Hugging Face Pequenos | Concluida com ressalvas |
-| 14+ | Modelos reais e escala | Pendente |
+| 14 | Escala 3B | Em andamento |
+| 15+ | Modelos reais e escala | Pendente |
 
 ## Fase 0 - Fundacao Conceitual
 
@@ -1785,7 +1786,7 @@ Fase 14 Marco 1 - Ponte HF Maior que Tiny GPT-2:
 
 ## Fase 14 - Escala 3B
 
-Status: **pendente**.
+Status: **em andamento**.
 
 ### Objetivo
 
@@ -1810,6 +1811,59 @@ offload: opcional
 - comparar com LoRA;
 - medir tokens/s;
 - medir ganho por byte.
+
+### Marco 1 - Ponte GPT-2 Small
+
+Status: **concluido**.
+
+Antes de 3B, foi usado `gpt2` como ponte maior que `sshleifer/tiny-gpt2`.
+
+Modelo:
+
+```text
+gpt2
+parametros: 124.439.808
+```
+
+Resultado CUDA:
+
+| metodo | count | mean val loss | best val loss | mean gain/param |
+|---|---:|---:|---:|---:|
+| SAINT | 3 | 6.814889 | 6.814889 | 0.00000200 |
+| LoRA | 3 | 6.808302 | 6.806123 | 0.00000399 |
+
+Pico CUDA:
+
+```text
+SAINT: 2.083841536 GB
+LoRA:  1.016675840 GB
+```
+
+Veredito:
+
+```text
+nao avancar ainda para 3B.
+```
+
+Motivo:
+
+```text
+LoRA venceu em loss, ganho por parametro e memoria no caminho atual.
+SAINT precisa otimizar memoria/payload e melhorar selecao antes da escala 3B.
+```
+
+### Marco 2 - Otimizar SAINT em GPT-2 Small
+
+Status: **pendente**.
+
+Entregas:
+
+- evitar segunda carga completa do modelo no adapter Hugging Face;
+- salvar apenas deltas treinaveis no payload SAINT;
+- reduzir custo de merge/eval;
+- medir memoria por etapa;
+- testar budgets SAINT maiores contra LoRA ranks `2` e `4`;
+- decidir novamente se o projeto pode ir para 3B.
 
 ## Fase 15 - Escala 14B
 

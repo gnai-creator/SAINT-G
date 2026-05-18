@@ -143,7 +143,9 @@ def _delta_payload(deltas, masks, base_weights) -> dict[str, list[list[float]]]:
     for name, delta in deltas.items():
         if name not in payload:
             continue
-        matrix = (delta.detach() * masks[name]).cpu().tolist()
+        rows = len(payload[name])
+        cols = len(payload[name][0]) if rows else 0
+        matrix = (delta.detach() * masks[name])[:rows, :cols].cpu().tolist()
         payload[name] = [[float(value) for value in row] for row in matrix]
     return payload
 
