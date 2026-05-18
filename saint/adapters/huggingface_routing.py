@@ -8,6 +8,7 @@ from saint.adapters.huggingface_block_routing import (
     block_validation_indices,
     structured_block_validation_indices,
 )
+from saint.adapters.huggingface_phi_routing import phi_validation_indices
 
 
 def _score_indices(torch, scores: dict[str, Any], *, budget: int):
@@ -312,6 +313,8 @@ def build_routed_deltas(
     structured_prototype_count: int = 1,
     structured_prototype_mode: str = "weight_sign",
     structured_scale_granularity: str = "block",
+    phi_rank: int = 4,
+    phi_variant: str = "dense",
 ):
     named = dict(model.named_parameters())
     if routing_method == "gradient":
@@ -327,6 +330,7 @@ def build_routed_deltas(
         "activation_validation_rerank",
         "activation_block_validation_rerank",
         "activation_structured_block_validation_rerank",
+        "activation_phi_validation_rerank",
     }:
         scores = _activation_scores(torch, model, names, input_ids, attention_mask, hybrid=False)
     elif routing_method == "magnitude_activation":
@@ -368,6 +372,22 @@ def build_routed_deltas(
             scores,
             budget=parameter_budget,
             block_size=max(1, routing_block_size),
+            candidate_multiplier=validation_rerank_multiplier,
+            validation_batch=validation_batch,
+            epsilon=validation_probe_epsilon,
+            max_candidates=validation_rerank_max_candidates,
+            batch_size=validation_rerank_batch_size,
+        )
+    elif routing_method == "activation_phi_validation_rerank" and validation_batch is not None:
+        selected = phi_validation_indices(
+            torch,
+            model,
+            names,
+            scores,
+            budget=parameter_budget,
+            block_size=max(1, routing_block_size),
+            phi_rank=max(1, phi_rank),
+            phi_variant=phi_variant,
             candidate_multiplier=validation_rerank_multiplier,
             validation_batch=validation_batch,
             epsilon=validation_probe_epsilon,

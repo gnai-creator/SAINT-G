@@ -288,6 +288,8 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         structured_scale_granularity=str(
             metadata.get("structured_scale_granularity", "block")
         ),
+        phi_rank=int(metadata.get("phi_rank", 4)),
+        phi_variant=str(metadata.get("phi_variant", "dense")),
     )
     routing_elapsed = perf_counter() - routing_start
     routing_cuda_peak = _cuda_peak(torch, device)
@@ -368,10 +370,8 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         final_loss = inplace_loss_value(
             torch, model, named, deltas, coordinates, (input_ids, attention_mask)
         )
-        validation_loss = (
-            float(train_info.get("validation_loss") or 0.0)
-            if delta_application == "inplace"
-            else final_loss
+        validation_loss = inplace_loss_value(
+            torch, model, named, deltas, coordinates, (val_ids, val_mask)
         )
     elif train_only:
         validation_loss = final_loss
@@ -457,6 +457,8 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "structured_scale_granularity": str(
                 metadata.get("structured_scale_granularity", "block")
             ),
+            "phi_rank": int(metadata.get("phi_rank", 4)),
+            "phi_variant": str(metadata.get("phi_variant", "dense")),
             "target_matrices": names,
             "train_only": train_only,
             "gradient_checkpointing": bool(metadata.get("gradient_checkpointing", False)),

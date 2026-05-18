@@ -1482,3 +1482,307 @@ Marco 12 deve consolidar SAINT como metodo de compressao extrema:
   parametro;
 - decidir criterio de passagem da Fase 15 como eficiencia por parametro, nao
   qualidade absoluta contra LoRA.
+
+## Marco 12 - Eficiencia por Parametro
+
+Status: **concluido como criterio de compressao extrema**.
+
+### Mudancas
+
+- criado `scripts/benchmark_huggingface_phase15_efficiency.py`;
+- o sweep registra sempre `validation_gain_per_parameter`;
+- o melhor ponto SAINT e selecionado automaticamente por ganho de validacao por
+  parametro;
+- adicionado comparativo contra LoRA rank 1 por estimativa de parametro
+  equivalente;
+- corrigido o caminho `train_only + measure_loss` para sempre calcular
+  `validation_loss` final real, mesmo sem `--validate-during-train`;
+- o criterio da Fase 15 passa a ser eficiencia por parametro/checkpoint, nao
+  loss absoluta contra LoRA.
+
+### Observacao Sobre a Metrica
+
+Uma rodada inicial retornou `validation_loss = 0.0` quando a validacao durante
+treino estava desligada. Isso era um bug de medicao, nao um ganho real.
+
+Correcao:
+
+```text
+train_only + measure_loss agora calcula a validation_loss final aplicando o
+delta in-place no batch de validacao.
+```
+
+### Budget 16/32/64
+
+Config:
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.2.self_attn.v_proj.weight
+routing: activation_structured_block_validation_rerank
+prototype_count: 2
+prototype_mode: activation
+scale_granularity: row
+block_size: 4
+steps: 4
+max_length: 4
+train_texts: 3
+validation_texts: 6
+gradient_checkpointing: on
+```
+
+Resultados:
+
+| budget | validation delta | ganho val/param | params | train CUDA | routing_s |
+|---:|---:|---:|---:|---:|---:|
+| 16 | +0.011784 | 0.000000e+00 | 16 | 17.412 GB | 23.299 |
+| 32 | -0.006461 | 2.019107e-04 | 32 | 17.412 GB | 24.368 |
+| 64 | +0.013001 | 0.000000e+00 | 64 | 17.412 GB | 42.422 |
+
+LoRA rank 1 no mesmo alvo:
+
+| metodo | validation delta | ganho val/param | params |
+|---|---:|---:|---:|
+| LoRA rank 1 forward-hook | -0.004622 | 7.521982e-07 | 6144 |
+| SAINT budget 32 | -0.006461 | 2.019107e-04 | 32 |
+
+Leitura:
+
+```text
+SAINT budget 32 venceu LoRA rank 1 em validation delta nesta rodada curta e
+venceu com folga em ganho de validacao por parametro.
+```
+
+O ponto importante nao e afirmar superioridade geral contra LoRA. A amostra e
+pequena. O resultado suporta um criterio mais especifico:
+
+```text
+SAINT pode ser muito forte em budgets extremos, onde LoRA rank 1 ainda tem
+milhares de parametros.
+```
+
+### Modos e Granularidades
+
+Sweep em layer 2, budget 32:
+
+| prototype_mode | scale_granularity | validation delta | ganho val/param |
+|---|---|---:|---:|
+| activation | block | -0.006461 | 2.019107e-04 |
+| activation | row | -0.006461 | 2.019107e-04 |
+| activation | col | -0.006461 | 2.019107e-04 |
+| weight_value | block | -0.006461 | 2.019107e-04 |
+| weight_value | row | -0.006461 | 2.019107e-04 |
+| weight_value | col | -0.006461 | 2.019107e-04 |
+
+Leitura:
+
+```text
+nesta configuracao curta, prototype_mode e scale_granularity nao mudaram o
+resultado observado. Isso sugere que a selecao dos blocos dominou mais do que a
+forma interna do prototipo.
+```
+
+### Mais Camadas
+
+Budget 32, `prototype_mode=activation`, `scale_granularity=row`:
+
+| camada | validation delta | ganho val/param | params |
+|---:|---:|---:|---:|
+| 1 | -0.019947 | 6.233305e-04 | 32 |
+| 2 | -0.006461 | 2.019107e-04 | 32 |
+| 3 | +0.002833 | 0.000000e+00 | 32 |
+
+Melhor ponto:
+
+```text
+layer 1, v_proj, budget 32
+validation_delta = -0.019947
+validation_gain_per_parameter = 6.233305e-04
+```
+
+### Veredito da Fase 15
+
+```text
+Fase 15 passou no criterio de eficiencia extrema por parametro.
+```
+
+Ela ainda nao passou como substituto geral de LoRA em qualidade absoluta. O
+criterio correto para prosseguir e:
+
+```text
+SAINT deve ser avaliado primeiro como adaptador ultra-compacto,
+com checkpoint minimo e ganho alto por parametro.
+```
+
+### Direcao Conceitual
+
+A leitura mais promissora para o proximo ciclo e aproximar SAINT de:
+
+```text
+Delta W = A Phi B
+```
+
+Onde `A` e `B` sao projecoes pequenas, mas `Phi` nao e apenas uma matriz densa
+de baixa dimensao. Em SAINT, `Phi` deve representar:
+
+- operador geometrico local;
+- manifold de microblocos;
+- bloco relacional 2x2 ou 4x4;
+- codebook topologico;
+- composicao multi-escala de operadores.
+
+Isso separa SAINT de LoRA classico:
+
+```text
+LoRA procura baixa patente linear.
+SAINT deve procurar geometria relacional local reutilizavel.
+```
+
+## Proximo Marco
+
+Marco 13 deve transformar o bloco estruturado em operador relacional:
+
+- implementar variante `saint_phi_delta`;
+- testar `Delta W = A Phi B` em um unico alvo 14B;
+- manter `Phi` pequeno, por exemplo 2x2/4x4 ou composicao de microblocos;
+- comparar contra o melhor ponto do Marco 12:
+  `layer 1 v_proj budget 32`;
+- medir validation_gain_per_parameter, checkpoint size e train CUDA;
+- decidir se a Fase 16 deve escalar o formato atual ou o formato `Phi`.
+
+## Marco 13 - SAINT Phi Delta
+
+Status: **concluido como novo melhor ponto de eficiencia**.
+
+### Ideia
+
+Implementar uma variante SAINT baseada em:
+
+```text
+Delta W = A Phi B
+```
+
+Nesta primeira implementacao, para manter memoria controlada em 14B, `A` e `B`
+sao obtidos por SVD local do bloco escolhido:
+
+```text
+A = U_r
+B = V_r^T
+Phi = operador pequeno treinavel
+```
+
+O delta nao e materializado como matriz densa. Cada base de `Phi` produz um
+prototipo local:
+
+```text
+prototipo_k = A basis_k B
+delta_bloco = soma theta_k * prototipo_k
+```
+
+Assim o treino continua usando o caminho in-place esparso ja existente.
+
+### Entregas
+
+- criado `saint/adapters/huggingface_phi_routing.py`;
+- criado `scripts/benchmark_huggingface_phase15_phi.py`;
+- adicionado routing method `activation_phi_validation_rerank`;
+- adicionado `--phi-rank`;
+- adicionado `--phi-variant`;
+- variantes iniciais de `Phi`:
+  - `dense`;
+  - `diagonal`;
+  - `upper_triangular`;
+  - `block_diagonal`;
+  - `kronecker`;
+  - `hadamard`;
+  - `codebook_2x2`;
+  - `codebook_4x4`.
+
+### Smoke
+
+O smoke em `models/sshleifer_tiny_gpt2` executou todas as variantes de `Phi`
+de ponta a ponta.
+
+### Comparacao Contra Marco 12
+
+Baseline Marco 12:
+
+```text
+target: model.layers.1.self_attn.v_proj.weight
+budget: 32
+validation_gain_per_parameter: 6.233305e-04
+```
+
+Config Marco 13:
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.1.self_attn.v_proj.weight
+routing: activation_phi_validation_rerank
+phi_rank: 4
+budget: 32
+block_size: 4
+steps: 4
+train_texts: 3
+validation_texts: 6
+max_length: 4
+gradient_checkpointing: on
+```
+
+Resultados:
+
+| Phi | validation delta | ganho val/param | params | checkpoint | routing_s |
+|---|---:|---:|---:|---:|---:|
+| dense | +0.000049 | 0.000000e+00 | 32 | 2868 B | 9.520 |
+| diagonal | +0.003608 | 0.000000e+00 | 32 | 10425 B | 23.403 |
+| upper_triangular | +0.013865 | 0.000000e+00 | 30 | 4155 B | 14.315 |
+| block_diagonal | +0.024908 | 0.000000e+00 | 32 | 5392 B | 13.987 |
+| kronecker | +0.000049 | 0.000000e+00 | 32 | 2867 B | 9.219 |
+| hadamard | -0.023148 | 7.715861e-04 | 30 | 12820 B | 23.299 |
+| codebook_2x2 | +0.004420 | 0.000000e+00 | 32 | 10398 B | 22.817 |
+| codebook_4x4 | -0.012781 | 3.993958e-04 | 32 | 40585 B | 23.466 |
+
+Melhor ponto:
+
+```text
+Phi = hadamard
+validation_delta = -0.023148
+validation_gain_per_parameter = 7.715861e-04
+params = 30
+```
+
+Comparacao:
+
+| metodo | validation delta | ganho val/param | params |
+|---|---:|---:|---:|
+| Marco 12 structured block | -0.019947 | 6.233305e-04 | 32 |
+| Marco 13 Phi hadamard | -0.023148 | 7.715861e-04 | 30 |
+
+### Veredito
+
+```text
+SAINT Phi superou o melhor ponto do Marco 12 em ganho por parametro.
+```
+
+Isso reforca a leitura dos PDFs:
+
+```text
+SAINT fica mais promissor quando Phi e tratado como operador estrutural,
+nao como LoRA pequeno nem como bloco livre.
+```
+
+O resultado mais interessante foi `hadamard`, porque ele nao e o mais flexivel.
+Ele tem poucos graus de liberdade e mesmo assim foi o melhor, sugerindo que a
+estrutura do operador importa mais que a capacidade bruta neste budget.
+
+## Proximo Marco
+
+Marco 14 deve consolidar `Phi`:
+
+- repetir `Phi=hadamard` com seeds 31, 32 e 33;
+- testar `layer 1`, `layer 2` e `layer 3`;
+- testar `phi_rank` 2, 4 e 8;
+- comparar contra LoRA rank 1 no mesmo corpus;
+- testar `Phi` inicializado por gradiente, nao so por SVD local do peso;
+- medir se `Phi` mantem vantagem quando `train_texts` e `validation_texts`
+  aumentam.

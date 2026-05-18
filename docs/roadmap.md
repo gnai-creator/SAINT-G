@@ -2825,6 +2825,118 @@ Proximo marco:
 - varrer `prototype_mode` e `scale_granularity`;
 - fechar criterio da Fase 15 por eficiencia por parametro/checkpoint.
 
+### Marco 12 - Eficiencia por Parametro
+
+Status: **concluido**.
+
+Mudancas:
+
+- criado `scripts/benchmark_huggingface_phase15_efficiency.py`;
+- `validation_gain_per_parameter` virou metrica obrigatoria;
+- melhor ponto SAINT e selecionado automaticamente por ganho de validacao por
+  parametro;
+- comparacao contra LoRA rank 1 inclui estimativa por parametro equivalente;
+- corrigido bug onde `train_only + measure_loss` podia registrar
+  `validation_loss = 0.0` sem validacao real.
+
+Resultado principal, Qwen2.5-14B, `v_proj`, layer 2:
+
+| budget | validation delta | ganho val/param | params |
+|---:|---:|---:|---:|
+| 16 | +0.011784 | 0.000000e+00 | 16 |
+| 32 | -0.006461 | 2.019107e-04 | 32 |
+| 64 | +0.013001 | 0.000000e+00 | 64 |
+
+Comparacao:
+
+| metodo | validation delta | ganho val/param | params |
+|---|---:|---:|---:|
+| SAINT budget 32 | -0.006461 | 2.019107e-04 | 32 |
+| LoRA rank 1 forward-hook | -0.004622 | 7.521982e-07 | 6144 |
+
+Mais camadas, budget 32:
+
+| camada | validation delta | ganho val/param |
+|---:|---:|---:|
+| 1 | -0.019947 | 6.233305e-04 |
+| 2 | -0.006461 | 2.019107e-04 |
+| 3 | +0.002833 | 0.000000e+00 |
+
+Veredito:
+
+```text
+Fase 15 passou como prova de eficiencia extrema por parametro.
+Ainda nao passou como substituto geral de LoRA em qualidade absoluta.
+```
+
+Direcao tecnica:
+
+```text
+Delta W = A Phi B
+```
+
+`Phi` deve virar o objeto SAINT principal: operador geometrico, manifold local,
+microbloco relacional 2x2/4x4 ou codebook topologico multi-escala.
+
+Proximo marco:
+
+- implementar `saint_phi_delta`;
+- comparar contra `layer 1 v_proj budget 32`;
+- medir ganho por parametro, tamanho de checkpoint e pico CUDA;
+- decidir se a Fase 16 escala o formato atual ou o formato `Phi`.
+
+### Marco 13 - SAINT Phi Delta
+
+Status: **concluido**.
+
+Mudancas:
+
+- criado `activation_phi_validation_rerank`;
+- criado `saint/adapters/huggingface_phi_routing.py`;
+- criado `scripts/benchmark_huggingface_phase15_phi.py`;
+- `Delta W = A Phi B` foi implementado com SVD local por bloco:
+  `A = U_r`, `B = V_r^T`;
+- `Phi` e treinavel e o delta denso nao e materializado;
+- variantes testadas:
+  `dense`, `diagonal`, `upper_triangular`, `block_diagonal`, `kronecker`,
+  `hadamard`, `codebook_2x2`, `codebook_4x4`.
+
+Resultado Qwen2.5-14B, `layer 1 v_proj`, budget 32:
+
+| Phi | validation delta | ganho val/param | params |
+|---|---:|---:|---:|
+| dense | +0.000049 | 0.000000e+00 | 32 |
+| diagonal | +0.003608 | 0.000000e+00 | 32 |
+| upper_triangular | +0.013865 | 0.000000e+00 | 30 |
+| block_diagonal | +0.024908 | 0.000000e+00 | 32 |
+| kronecker | +0.000049 | 0.000000e+00 | 32 |
+| hadamard | -0.023148 | 7.715861e-04 | 30 |
+| codebook_2x2 | +0.004420 | 0.000000e+00 | 32 |
+| codebook_4x4 | -0.012781 | 3.993958e-04 | 32 |
+
+Comparacao:
+
+| metodo | validation delta | ganho val/param | params |
+|---|---:|---:|---:|
+| Marco 12 structured block | -0.019947 | 6.233305e-04 | 32 |
+| Marco 13 Phi hadamard | -0.023148 | 7.715861e-04 | 30 |
+
+Veredito:
+
+```text
+SAINT Phi superou o melhor ponto do Marco 12.
+O melhor Phi foi hadamard, sugerindo que estrutura vence capacidade bruta nesse budget.
+```
+
+Proximo marco:
+
+- repetir `Phi=hadamard` com seeds 31, 32 e 33;
+- testar layers 1, 2 e 3;
+- testar `phi_rank` 2, 4 e 8;
+- comparar contra LoRA rank 1;
+- inicializar `Phi` por gradiente/ativacao;
+- aumentar gradualmente textos de treino e validacao.
+
 ## Fase 16 - Escala 70B
 
 Status: **pendente**.

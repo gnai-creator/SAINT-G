@@ -131,6 +131,8 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         structured_prototype_count=args.structured_prototype_count,
         structured_prototype_mode=args.structured_prototype_mode,
         structured_scale_granularity=args.structured_scale_granularity,
+        phi_rank=args.phi_rank,
+        phi_variant=args.phi_variant,
         hf_device_map=args.hf_device_map,
         hf_max_memory=max_memory,
         hf_offload_folder=str(Path(args.out) / f"offload_{label}"),
@@ -215,6 +217,10 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
             values.structured_prototype_mode,
             "--structured-scale-granularity",
             values.structured_scale_granularity,
+            "--phi-rank",
+            str(values.phi_rank),
+            "--phi-variant",
+            values.phi_variant,
         ]
     )
     if values.validation_rerank_max_candidates is not None:
@@ -346,6 +352,8 @@ def main() -> None:
     parser.add_argument("--structured-prototype-count", type=int, default=1)
     parser.add_argument("--structured-prototype-mode", default="weight_sign")
     parser.add_argument("--structured-scale-granularity", default="block")
+    parser.add_argument("--phi-rank", type=int, default=4)
+    parser.add_argument("--phi-variant", default="dense")
     parser.add_argument("--hf-device-map", default="auto")
     parser.add_argument("--lora-max-memory", default="0=14GiB,cpu=64GiB")
     parser.add_argument("--lora-learning-rate", type=float, default=0.001)

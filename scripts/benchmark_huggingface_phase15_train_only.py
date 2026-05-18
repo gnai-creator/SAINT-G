@@ -77,6 +77,8 @@ def _config(args) -> RuntimeConfig:
         "structured_prototype_count": args.structured_prototype_count,
         "structured_prototype_mode": args.structured_prototype_mode,
         "structured_scale_granularity": args.structured_scale_granularity,
+        "phi_rank": args.phi_rank,
+        "phi_variant": args.phi_variant,
         "target_names": _target_names(args.target_names),
         "target_device": args.target_device,
         "max_cuda_gb": args.max_cuda_gb,
@@ -160,6 +162,8 @@ def main() -> None:
     parser.add_argument("--structured-prototype-count", type=int, default=1)
     parser.add_argument("--structured-prototype-mode", default="weight_sign")
     parser.add_argument("--structured-scale-granularity", default="block")
+    parser.add_argument("--phi-rank", type=int, default=4)
+    parser.add_argument("--phi-variant", default="dense")
     parser.add_argument("--hf-device-map", default=None)
     parser.add_argument("--hf-max-memory", default=None)
     parser.add_argument("--hf-offload-folder", default=None)
