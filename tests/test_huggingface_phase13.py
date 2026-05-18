@@ -7,6 +7,7 @@ from saint.checkpoints import write_json
 from saint.config import RuntimeConfig
 from saint.adapters.huggingface_benchmark import benchmark_hf_saint_vs_full
 from saint.adapters.huggingface_grid import run_hf_phase13_grid
+from saint.adapters.huggingface_multiseed import run_hf_phase13_multiseed
 from saint.adapters.huggingface_sweep import run_hf_phase13_sweep
 from saint.adapters.huggingface_validation import run_hf_phase13_validation
 from saint.runtime import inspect_runtime, merge_runtime, resume_runtime, train_runtime
@@ -388,6 +389,55 @@ class HuggingFacePhase13Tests(unittest.TestCase):
             self.assertIn("SAINT", result["generation"])
             saint_rows = [row for row in result["rows"] if row["method"] == "saint"]
             self.assertTrue(all(row["delta_only_bytes"] > 0 for row in saint_rows))
+
+    def test_huggingface_phase13_multiseed_loads_lora_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = Path(tmp) / "tiny_model"
+            corpus = Path(tmp) / "corpus.txt"
+            run_dir = Path(tmp) / "multiseed"
+            if not _write_tiny_hf_model(model_dir):
+                self.skipTest("transformers is not installed")
+            corpus.write_text(
+                "\n".join(
+                    [
+                        "simple ai node training",
+                        "saint trains compact deltas",
+                        "gradient maps choose useful weights",
+                        "checkpoint quality remains stable",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_hf_phase13_multiseed(
+                model_dir,
+                corpus,
+                run_dir,
+                seeds=(31, 32),
+                steps=1,
+                saint_budgets=(4,),
+                saint_lrs=(0.001,),
+                lora_ranks=(1,),
+                lora_lrs=(0.001,),
+                device="cpu",
+                max_length=12,
+                prompts=("SAINT",),
+            )
+
+            self.assertTrue((run_dir / "multiseed_results.json").exists())
+            self.assertTrue((run_dir / "multiseed_results.md").exists())
+            self.assertEqual(result["seeds"], [31, 32])
+            self.assertIn("saint", result["aggregate"])
+            self.assertIn("lora", result["aggregate"])
+            self.assertIn("lora_loaded_validation_loss", result["lora_loaded_eval"])
+            self.assertIn("SAINT", result["generation"])
+            self.assertIn(
+                result["phase13_decision"],
+                {
+                    "fase_13_can_close_with_caveat",
+                    "needs_larger_model_or_dataset_before_close",
+                },
+            )
 
 
 if __name__ == "__main__":

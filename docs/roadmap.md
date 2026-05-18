@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 13 - Modelos Hugging Face Pequenos
-Fase anterior: Fase 12 concluida
-Proximo marco: Fase 13 Marco 9 - Dataset Real e Multiseed
+Fase atual: Fase 14 - Escala 3B
+Fase anterior: Fase 13 concluida com ressalvas
+Proximo marco: Fase 14 Marco 1 - Ponte HF Maior que Tiny GPT-2
 ```
 
 Resumo do estado:
@@ -49,7 +49,8 @@ Resumo do estado:
 | 10 | Checkpoint Robusto | Concluida |
 | 11 | Checkpoint Escalavel | Concluida |
 | 12 | Validacao de Escala de Checkpoint | Concluida |
-| 13+ | Modelos reais e escala | Pendente |
+| 13 | Modelos Hugging Face Pequenos | Concluida com ressalvas |
+| 14+ | Modelos reais e escala | Pendente |
 
 ## Fase 0 - Fundacao Conceitual
 
@@ -1452,7 +1453,7 @@ I/O por dtype, migracao de manifesto e qualidade numerica inicial por dtype.
 
 ## Fase 13 - Modelos Hugging Face Pequenos
 
-Status: **em andamento**.
+Status: **concluida com ressalvas**.
 
 ### Objetivo
 
@@ -1728,16 +1729,59 @@ ganho por parametro e tamanho de artefato delta-only.
 A geracao curta ainda nao mudou de forma observavel.
 ```
 
+### Marco 9 - Dataset Real e Multiseed
+
+Status: **concluido**.
+
+Entregas:
+
+- dataset externo pequeno `tinyshakespeare`;
+- cache local em `data/tinyshakespeare_phase13.txt`;
+- modulo `saint/adapters/huggingface_lora.py`;
+- modulo `saint/adapters/huggingface_multiseed.py`;
+- script `scripts/benchmark_huggingface_multiseed_phase13.py`;
+- grid com seeds `31`, `32` e `33`;
+- LoRA salvo, carregado e reaplicado no forward;
+- avaliacao de geracao com prompts e metricas simples;
+- decisao automatica de fechamento.
+
+Resultado CUDA:
+
+| metodo | count | mean val loss | best val loss | mean gain/param |
+|---|---:|---:|---:|---:|
+| SAINT | 12 | 10.823841 | 10.823558 | 0.00005602 |
+| LoRA | 12 | 10.824103 | 10.824080 | 0.00000049 |
+
+Artefato LoRA carregado:
+
+```text
+lora_loaded_validation_loss: 10.824079513549805
+lora_loaded_perplexity: 50215.52463511919
+```
+
+Decisao:
+
+```text
+fase_13_can_close_with_caveat
+```
+
+Conclusao:
+
+```text
+Fase 13 fecha como prova de pipeline Hugging Face pequeno,
+comparacao inicial contra LoRA e validacao multiseed.
+A ressalva e que tiny-gpt2 e pequeno demais para provar qualidade de geracao.
+```
+
 ### Proximo Marco
 
-Marco 9 - Dataset Real e Multiseed:
+Fase 14 Marco 1 - Ponte HF Maior que Tiny GPT-2:
 
-- usar dataset externo real pequeno ou fixture baixavel;
-- medir perplexity em validacao com mais exemplos;
-- repetir grid com seeds `31`, `32` e `33`;
-- comparar contra LoRA com artefato carregado e aplicado no forward;
-- adicionar avaliacao de geracao com prompts e metricas simples;
-- decidir se Fase 13 ja pode fechar ou se precisa de um modelo pequeno maior.
+- escolher um modelo causal LM maior que `sshleifer/tiny-gpt2` e menor que 1B;
+- rodar o mesmo benchmark multiseed;
+- medir VRAM real;
+- manter LoRA carregavel como controle;
+- decidir se avanca para experimento 3B ou se precisa otimizar SAINT primeiro.
 
 ## Fase 14 - Escala 3B
 

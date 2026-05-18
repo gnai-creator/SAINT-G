@@ -503,11 +503,115 @@ LoRA       -> LoRA stairs stairs stairs stairs stairs stairs stairs stairs
 
 ## Proximo Marco
 
-Marco 9 deve tornar a avaliacao menos sintetica:
+## Marco 9 - Dataset Real e Multiseed
 
-- usar dataset externo real pequeno ou fixture baixavel;
-- medir perplexity em validacao com mais exemplos;
-- repetir grid com seeds `31`, `32` e `33`;
-- comparar contra LoRA com artefato carregado e aplicado no forward;
-- adicionar avaliacao de geracao com prompts e metricas simples;
-- decidir se Fase 13 ja pode fechar ou se precisa de um modelo pequeno maior.
+Status: **concluido**.
+
+Este marco usa um corpus externo pequeno, repete a avaliacao com multiplas
+seeds e valida que o artefato LoRA salvo pode ser carregado e aplicado de volta
+no forward.
+
+### Entregas
+
+- modulo `saint/adapters/huggingface_lora.py`;
+- modulo `saint/adapters/huggingface_multiseed.py`;
+- script `scripts/benchmark_huggingface_multiseed_phase13.py`;
+- corpus externo `tinyshakespeare` baixavel;
+- cache local em `data/tinyshakespeare_phase13.txt`;
+- grid com seeds `31`, `32` e `33`;
+- avaliacao de perplexity em validacao com mais exemplos;
+- carregamento de artefato LoRA salvo;
+- aplicacao do LoRA carregado no modelo;
+- avaliacao simples de geracao por prompt;
+- decisao automatica de fechamento da Fase 13.
+
+### Comando
+
+```bash
+python scripts/benchmark_huggingface_multiseed_phase13.py \
+  --model models/sshleifer_tiny_gpt2 \
+  --corpus data/tinyshakespeare_phase13.txt \
+  --dataset-url https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt \
+  --out runs/phase13_marco9_multiseed \
+  --device cuda \
+  --steps 4 \
+  --batch-size 4 \
+  --seeds 31,32,33 \
+  --saint-budgets 8,16 \
+  --saint-lrs 0.001,0.005 \
+  --lora-ranks 2,4 \
+  --lora-lrs 0.001,0.005
+```
+
+### Resultado CUDA Multiseed
+
+| metodo | count | mean val loss | best val loss | mean gain/param |
+|---|---:|---:|---:|---:|
+| SAINT | 12 | 10.823841 | 10.823558 | 0.00005602 |
+| LoRA | 12 | 10.824103 | 10.824080 | 0.00000049 |
+
+Artefato LoRA carregado:
+
+```text
+lora_loaded_validation_loss: 10.824079513549805
+lora_loaded_perplexity: 50215.52463511919
+targets:
+  transformer.h.0.attn.c_attn.weight
+  transformer.h.0.attn.c_proj.weight
+```
+
+Geracao simples:
+
+```text
+SAINT      -> SAINT stairs stairs stairs stairs stairs stairs stairs stairs
+Checkpoint -> Checkpoint stairs stairs stairs stairs stairs stairs stairs stairs
+Training   -> Training stairs stairs stairs stairs stairs stairs stairs stairs
+```
+
+### Decisao
+
+```text
+fase_13_can_close_with_caveat
+```
+
+Interpretacao:
+
+- SAINT venceu LoRA neste regime em validation loss media, melhor validation
+  loss e ganho medio por parametro;
+- o artefato LoRA carregado reproduziu avaliacao no forward;
+- a geracao continua sem mudanca qualitativa observavel, o que limita a
+  conclusao de qualidade;
+- como o modelo e extremamente pequeno, a Fase 13 fecha como prova de pipeline e
+  comparacao inicial, nao como prova definitiva de qualidade linguistica.
+
+## Resultado Final da Fase 13
+
+Status: **concluida com ressalvas**.
+
+A Fase 13 demonstrou:
+
+- carregamento Hugging Face local;
+- forward real `AutoModelForCausalLM`;
+- treino SAINT por autograd;
+- comparacao contra full fine-tuning e LoRA;
+- sweep de budgets, ranks e learning rates;
+- split treino/validacao;
+- checkpoint, resume e merge;
+- artefatos comparaveis;
+- dataset externo pequeno;
+- multiseed;
+- LoRA salvo, carregado e reaplicado.
+
+A ressalva principal e que `sshleifer/tiny-gpt2` e pequeno demais para avaliar
+qualidade de geracao de forma significativa. Para qualidade linguistica, o
+proximo passo deve usar um modelo pequeno maior.
+
+## Proximo Marco
+
+Proximo passo recomendado:
+
+- iniciar Fase 14 com cuidado;
+- antes de 3B, rodar uma ponte opcional em modelo HF maior que `tiny-gpt2`;
+- candidatos: GPT-2 pequeno local, TinyLlama pequeno ou outro causal LM abaixo
+  de 1B que caiba na RTX 4090;
+- manter SAINT vs LoRA multiseed como criterio de entrada para escala maior.
