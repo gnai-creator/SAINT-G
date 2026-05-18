@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 7 - Runtime SAINT
-Fase anterior: Fase 6 concluida
-Proximo marco: Fase 7 - Runtime SAINT
+Fase atual: Fase 8 - Checkpoint e Reconstituicao
+Fase anterior: Fase 7 concluida
+Proximo marco: Fase 8 - Checkpoint e Reconstituicao
 ```
 
 Resumo do estado:
@@ -43,7 +43,9 @@ Resumo do estado:
 | 4 | Treino de Camada Linear | Concluida |
 | 5 | Mini-Transformer | Concluida |
 | 6 | Mapa de Sensibilidade | Concluida |
-| 7+ | Escala e runtime completo | Pendente |
+| 7 | Runtime SAINT | Concluida |
+| 8 | Checkpoint e Reconstituicao | Pendente |
+| 9+ | Adapters e escala | Pendente |
 
 ## 1. Fase 0 - Fundacao Conceitual
 
@@ -893,11 +895,56 @@ O mapa de sensibilidade deve superar selecao aleatoria de forma clara.
 
 ## 8. Fase 7 - Runtime SAINT
 
-Status: **pendente**.
+Status: **concluida**.
 
 ### Objetivo
 
 Criar o runtime unificado.
+
+### Implementacao Inicial
+
+Foram adicionados:
+
+```text
+saint/config/
+saint/memory/
+saint/checkpoints/
+saint/adapters/
+saint/runtime/
+saint/cli.py
+configs/runtime_smoke.json
+tests/test_runtime_phase7.py
+docs/process/fase_7_runtime.md
+```
+
+O runtime inicial executa o mini-transformer com `mini_saint_dynamic_delta`,
+mapa `gradient_norm`, config JSON, estimativa de memoria, logs e checkpoint.
+
+Smoke test executado:
+
+```text
+python -m saint.cli inspect --config configs/runtime_smoke.json
+python -m saint.cli estimate --config configs/runtime_smoke.json --vram-gb 12
+python -m saint.cli train --config configs/runtime_smoke.json
+python -m saint.cli resume --run runs/runtime_smoke
+python -m saint.cli merge --run runs/runtime_smoke
+```
+
+Resultado:
+
+```text
+method: mini_saint_dynamic_delta
+parameter_count: 30
+test_loss: 0.00016531
+fits_budget: true
+artifacts: config.json, metrics.json, checkpoint.json, logs.jsonl, merged.json
+```
+
+Conclusao:
+
+```text
+Fase 7 concluida pelo criterio inicial.
+```
 
 ### Modulos
 

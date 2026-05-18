@@ -1,0 +1,18 @@
+{
+  "delta_mode": "repeated",
+  "delta_scale": 3.0,
+  "d_model": 4,
+  "experiment_name": "runtime_smoke",
+  "method": "mini_saint_dynamic_delta",
+  "output_dir": "runs/runtime_smoke",
+  "parameter_budget": 24,
+  "seed": 31,
+  "sensitivity_method": "gradient_norm",
+  "seq_len": 4,
+  "steps": 2,
+  "task": "mini_transformer",
+  "test_samples": 2,
+  "train_samples": 4,
+  "vocab_size": 8,
+  "vram_gb": 12.0
+}
