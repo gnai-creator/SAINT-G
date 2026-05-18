@@ -1357,11 +1357,25 @@ O runtime agora aceita `merge_runtime(..., matrix_names={...})` e a CLI aceita
 
 #### Fase 12C - Custo de I/O por Dtype
 
+Status: **concluida**.
+
 - medir tamanho de checkpoint por dtype;
 - medir tempo de escrita por dtype;
 - medir tempo de leitura por dtype;
 - comparar `float32`, `float16`, `bfloat16` e `int8`;
 - registrar perda de precisao por dtype.
+
+Resultado:
+
+| dtype | bytes | razao vs float32 | shards | escrita s | leitura s | erro max abs |
+|---|---:|---:|---:|---:|---:|---:|
+| float32 | 2103968 | 1.0000 | 32 | 0.3124 | 0.3038 | 0.0000000005 |
+| float16 | 1052000 | 0.5000 | 16 | 0.1771 | 0.3044 | 0.0000037720 |
+| bfloat16 | 1052016 | 0.5000 | 16 | 0.1598 | 0.8330 | 0.0000602539 |
+| int8 | 526121 | 0.2501 | 8 | 0.2240 | 0.2609 | 0.0000480315 |
+
+`float16` e o melhor formato inicial para checkpoint compacto. `int8` reduz
+mais tamanho, mas fica pendente de validacao de qualidade em tarefa real.
 
 #### Fase 12D - Compatibilidade e Migracao
 

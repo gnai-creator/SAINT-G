@@ -165,7 +165,71 @@ def benchmark_partial_shard_read(
     }
 
 
+def benchmark_dtype_io(
+    run_dir: str | Path,
+    *,
+    matrix_count: int = 4,
+    rows: int = 128,
+    cols: int = 128,
+    shard_bytes: int = 32768,
+    dtypes: tuple[str, ...] = ("float32", "float16", "bfloat16", "int8"),
+) -> dict[str, Any]:
+    target = Path(run_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    payload = synthetic_delta_payload(
+        matrix_count=matrix_count,
+        rows=rows,
+        cols=cols,
+    )
+    results = []
+    for dtype in dtypes:
+        dtype_dir = target / dtype
+        dtype_dir.mkdir(parents=True, exist_ok=True)
+        write_start = perf_counter()
+        entry = write_matrix_payload(
+            dtype_dir / "dtype_deltas.saintbin",
+            payload,
+            dtype=dtype,
+            shard_bytes=shard_bytes,
+        )
+        write_elapsed_s = perf_counter() - write_start
+
+        tracemalloc.start()
+        read_start = perf_counter()
+        restored = read_matrix_payload_entry(dtype_dir, entry)
+        read_elapsed_s = perf_counter() - read_start
+        _, read_peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        results.append(
+            {
+                "dtype": dtype,
+                "format": entry["format"],
+                "payload_bytes": int(entry["bytes"]),
+                "shard_count": int(entry.get("shard_count", 1)),
+                "write_elapsed_s": write_elapsed_s,
+                "read_elapsed_s": read_elapsed_s,
+                "read_peak_bytes": read_peak_bytes,
+                "max_abs_error": _max_abs_error(payload, restored),
+            }
+        )
+    baseline_bytes = next(
+        item["payload_bytes"] for item in results if item["dtype"] == "float32"
+    )
+    for item in results:
+        item["size_ratio_vs_float32"] = item["payload_bytes"] / baseline_bytes
+    return {
+        "matrix_count": matrix_count,
+        "rows": rows,
+        "cols": cols,
+        "value_count": matrix_count * rows * cols,
+        "shard_bytes": shard_bytes,
+        "results": results,
+    }
+
+
 __all__ = [
+    "benchmark_dtype_io",
     "benchmark_large_shards",
     "benchmark_partial_shard_read",
     "synthetic_delta_payload",

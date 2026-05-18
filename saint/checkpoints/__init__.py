@@ -13,6 +13,7 @@ from saint.checkpoints.manager import (
     write_metrics,
 )
 from saint.checkpoints.scale import (
+    benchmark_dtype_io,
     benchmark_large_shards,
     benchmark_partial_shard_read,
     synthetic_delta_payload,
@@ -20,6 +21,7 @@ from saint.checkpoints.scale import (
 
 __all__ = [
     "benchmark_large_shards",
+    "benchmark_dtype_io",
     "benchmark_partial_shard_read",
     "checkpoint_payload",
     "migrate_checkpoint_manifest",

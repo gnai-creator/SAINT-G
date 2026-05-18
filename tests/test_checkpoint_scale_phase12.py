@@ -4,6 +4,7 @@ import unittest
 
 from saint.checkpoints.robust import read_matrix_payload_entry, write_matrix_payload
 from saint.checkpoints.scale import (
+    benchmark_dtype_io,
     benchmark_large_shards,
     benchmark_partial_shard_read,
     synthetic_delta_payload,
@@ -109,6 +110,23 @@ class CheckpointScalePhase12Tests(unittest.TestCase):
             self.assertEqual(result["partial_matrix_count"], 1)
             self.assertEqual(result["partial_keys"], ["matrix_000"])
             self.assertLess(result["max_abs_error"], 0.001)
+
+    def test_dtype_io_benchmark_reports_all_formats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = benchmark_dtype_io(
+                tmp,
+                matrix_count=2,
+                rows=16,
+                cols=16,
+                shard_bytes=256,
+            )
+            by_dtype = {item["dtype"]: item for item in result["results"]}
+
+            self.assertEqual(set(by_dtype), {"float32", "float16", "bfloat16", "int8"})
+            self.assertEqual(by_dtype["float32"]["size_ratio_vs_float32"], 1.0)
+            self.assertLess(by_dtype["float16"]["size_ratio_vs_float32"], 1.0)
+            self.assertLess(by_dtype["int8"]["size_ratio_vs_float32"], 1.0)
+            self.assertLess(by_dtype["float16"]["max_abs_error"], 0.001)
 
 
 if __name__ == "__main__":
