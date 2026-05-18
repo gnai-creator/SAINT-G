@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 15 - Escala 14B
 Fase anterior: Fase 14 concluida com ressalvas
-Proximo marco: Fase 15 Marco 7 - Generalizacao 14B
+Proximo marco: Fase 15 Marco 8 - Roteamento de Validacao Barato
 ```
 
 Resumo do estado:
@@ -2582,6 +2582,59 @@ Proximo marco:
 - medir validacao durante treino sem recarregar modelo;
 - comparar LoRA rank 1/2 com o mesmo numero de textos;
 - adicionar early stopping por validation loss.
+
+### Marco 7 - Generalizacao 14B
+
+Status: **concluido como diagnostico negativo**.
+
+Mudancas:
+
+- treino esparso in-place modularizado em
+  `saint.adapters.huggingface_sparse_train`;
+- `train_only` passou a aceitar multiplos textos de treino;
+- validacao durante treino sem recarregar modelo;
+- early stopping por validation loss;
+- comparacao LoRA rank 1/2 com o mesmo numero de textos;
+- roteamentos `validation_gradient` e `validation_magnitude_activation`.
+
+Resultado:
+
+| teste | metodo | status/loss delta | pico CUDA |
+|---|---|---:|---:|
+| layer 2 `v_proj` | `validation_gradient` | falhou | 29.962 GB |
+| layer 2 `v_proj` com 8GiB | `validation_gradient` | falhou | 29.987 GB |
+| layer 2 `v_proj` | SAINT validation proxy | +0.073896 | 15.782 GB |
+| layer 2 `v_proj` | LoRA rank 1 | -0.003053 | 15.785 GB |
+| layer 3 `v_proj` | SAINT validation proxy | +0.058203 | 15.782 GB |
+| layer 3 `v_proj` | LoRA rank 1 | -0.000484 | 15.785 GB |
+| layer 2 `v_proj` | SAINT activation multitexto | -0.182964 | 15.782 GB |
+| layer 2/3 `v_proj` | LoRA rank 2 | falhou | 26.703 GB |
+
+Veredito:
+
+```text
+validacao durante treino funciona, mas o roteamento por mini-validacao ainda
+nao e competitivo no 14B.
+```
+
+Leitura:
+
+- `validation_gradient` e fiel, mas estoura o limite de 23 GB;
+- `validation_magnitude_activation` cabe, mas escolheu blocos piores que
+  `activation`;
+- `activation` ainda e o baseline SAINT 14B mais forte neste marco;
+- LoRA rank 1 melhora pouco, enquanto LoRA rank 2 ainda estoura memoria no
+  caminho atual.
+
+Proximo marco:
+
+- selecionar candidatos por `activation` e ranquear apenas um subconjunto por
+  mini-validacao;
+- medir ganho real de validacao por candidato sem backward completo quando
+  possivel;
+- aplicar rollback antes de escolher o delta final;
+- tornar LoRA rank 2 esparso/low-rank sem update denso temporario;
+- manter `activation` como baseline 14B ate o roteador de validacao vencer.
 
 ## Fase 16 - Escala 70B
 

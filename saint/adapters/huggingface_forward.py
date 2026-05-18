@@ -8,6 +8,10 @@ from typing import Any
 
 from saint.adapters.huggingface_loading import load_causal_lm, model_dtype
 from saint.adapters.huggingface_routing import build_routed_deltas, merged_params
+from saint.adapters.huggingface_sparse_train import (
+    inplace_loss_value,
+    train_inplace_sparse,
+)
 from saint.config import RuntimeConfig
 from saint.transformer.training import MiniTransformerResult
 
@@ -171,68 +175,6 @@ def _loss_value(functional_call, model, params, input_ids, attention_mask) -> fl
     )
 
 
-def _inplace_delta(torch, named, deltas, coordinates, *, sign: float) -> None:
-    with torch.no_grad():
-        for name, delta in deltas.items():
-            rows, cols = coordinates[name]
-            named[name].index_put_((rows, cols), sign * delta, accumulate=True)
-
-
-def _inplace_loss_value(torch, model, named, deltas, coordinates, input_ids, attention_mask):
-    _inplace_delta(torch, named, deltas, coordinates, sign=1.0)
-    try:
-        with torch.no_grad():
-            value = _plain_loss(model, input_ids, attention_mask)
-            return float(value.detach().cpu().item())
-    finally:
-        _inplace_delta(torch, named, deltas, coordinates, sign=-1.0)
-
-
-def _zero_target_grads(named, coordinates) -> None:
-    for name in coordinates:
-        grad = named[name].grad
-        if grad is not None:
-            grad.zero_()
-
-
-def _train_inplace_sparse(
-    torch,
-    model,
-    deltas,
-    coordinates,
-    train_batches,
-    *,
-    steps: int,
-    learning_rate: float,
-    lr_decay: float,
-) -> float:
-    named = dict(model.named_parameters())
-    last_loss = 0.0
-    for name in coordinates:
-        named[name].requires_grad_(True)
-    for step in range(steps):
-        _zero_target_grads(named, coordinates)
-        for batch_ids, batch_mask in train_batches:
-            _inplace_delta(torch, named, deltas, coordinates, sign=1.0)
-            try:
-                loss = _plain_loss(model, batch_ids, batch_mask) / len(train_batches)
-                last_loss = float(loss.detach().cpu().item() * len(train_batches))
-                loss.backward()
-            finally:
-                _inplace_delta(torch, named, deltas, coordinates, sign=-1.0)
-        with torch.no_grad():
-            step_lr = learning_rate * (lr_decay ** step)
-            for name, delta in deltas.items():
-                rows, cols = coordinates[name]
-                grad = named[name].grad
-                if grad is not None:
-                    delta.sub_(step_lr * grad[rows, cols].to(delta.dtype))
-        _zero_target_grads(named, coordinates)
-    for name in coordinates:
-        named[name].requires_grad_(False)
-    return last_loss
-
-
 def _target_shapes(model, names: list[str]) -> dict[str, list[int]]:
     params = dict(model.named_parameters())
     return {name: [int(params[name].shape[0]), int(params[name].shape[1])] for name in names}
@@ -318,15 +260,23 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     routing_start = perf_counter()
+    route_ids, route_mask = routing_ids, routing_mask
+    route_method = routing_method
+    if routing_method == "validation_gradient":
+        route_ids, route_mask = val_ids, val_mask
+        route_method = "gradient_sequential"
+    elif routing_method == "validation_magnitude_activation":
+        route_ids, route_mask = val_ids, val_mask
+        route_method = "magnitude_activation"
     deltas, coordinates = build_routed_deltas(
         torch,
         functional_call,
         model,
         names,
         parameter_budget=max(1, config.parameter_budget),
-        input_ids=routing_ids,
-        attention_mask=routing_mask,
-        routing_method=routing_method,
+        input_ids=route_ids,
+        attention_mask=route_mask,
+        routing_method=route_method,
         loss_fn=_loss,
     )
     routing_elapsed = perf_counter() - routing_start
@@ -344,8 +294,8 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
                 _plain_loss(model, input_ids, attention_mask).detach().cpu().item()
             )
     elif not train_only and delta_application == "inplace":
-        initial_loss = _inplace_loss_value(
-            torch, model, named, deltas, coordinates, input_ids, attention_mask
+        initial_loss = inplace_loss_value(
+            torch, model, named, deltas, coordinates, (input_ids, attention_mask)
         )
     elif not train_only:
         optimizer = torch.optim.AdamW(list(deltas.values()), lr=learning_rate)
@@ -365,7 +315,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     final_loss = initial_loss
     model.train()
     if delta_application == "inplace":
-        final_loss = _train_inplace_sparse(
+        train_info = train_inplace_sparse(
             torch,
             model,
             deltas,
@@ -374,7 +324,13 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             steps=steps,
             learning_rate=learning_rate,
             lr_decay=lr_decay,
+            validation_batch=(val_ids, val_mask)
+            if bool(metadata.get("validate_during_train", False))
+            else None,
+            early_stopping=bool(metadata.get("early_stopping", False)),
+            min_delta=float(metadata.get("early_stopping_min_delta", 0.0)),
         )
+        final_loss = float(train_info["train_loss"])
     else:
         for _ in range(steps):
             optimizer.zero_grad()
@@ -395,18 +351,18 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     _check_cuda_budget(torch, device, metadata, "train")
     _clear_cuda(torch, device)
     if train_only and measure_train_only_loss:
-        final_loss = _inplace_loss_value(
-            torch, model, named, deltas, coordinates, input_ids, attention_mask
+        final_loss = inplace_loss_value(
+            torch, model, named, deltas, coordinates, (input_ids, attention_mask)
         )
         validation_loss = final_loss
     elif train_only:
         validation_loss = final_loss
     elif delta_application == "inplace":
-        final_loss = _inplace_loss_value(
-            torch, model, named, deltas, coordinates, input_ids, attention_mask
+        final_loss = inplace_loss_value(
+            torch, model, named, deltas, coordinates, (input_ids, attention_mask)
         )
-        validation_loss = _inplace_loss_value(
-            torch, model, named, deltas, coordinates, val_ids, val_mask
+        validation_loss = inplace_loss_value(
+            torch, model, named, deltas, coordinates, (val_ids, val_mask)
         )
     else:
         final_loss = _loss_value(
@@ -464,6 +420,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "stage_elapsed": stage_elapsed,
             "delta_payload_format": "saint_sparse_delta",
             "routing_method": routing_method,
+            "effective_routing_method": route_method,
             "delta_application": delta_application,
             "routing_max_length": routing_length,
             "routing_batch_size": routing_batch_size,
@@ -471,6 +428,12 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "train_only": train_only,
             "gradient_checkpointing": bool(metadata.get("gradient_checkpointing", False)),
             "lr_decay": lr_decay,
+            "validation_history": train_info.get("history", [])
+            if delta_application == "inplace"
+            else [],
+            "steps_ran": train_info.get("steps_ran", steps)
+            if delta_application == "inplace"
+            else steps,
             "marco": str(metadata.get("marco", "fase_13_marco_3")),
         },
     )

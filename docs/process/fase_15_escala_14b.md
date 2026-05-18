@@ -832,3 +832,130 @@ Marco 7 deve focar generalizacao:
 - testar targets em camadas 2 e 3 com validacao como criterio;
 - comparar contra LoRA rank 1/2 com o mesmo numero de textos;
 - adicionar early stopping por validation loss.
+
+## Marco 7 - Generalizacao 14B
+
+Status: **concluido como diagnostico negativo**.
+
+### Mudancas
+
+- o treino esparso in-place foi separado em
+  `saint.adapters.huggingface_sparse_train`;
+- `train_only` aceita mais de um texto de treino;
+- `train_only` aceita textos de validacao separados;
+- a validacao pode ser medida durante o treino, sem recarregar o modelo;
+- adicionado early stopping por validation loss;
+- LoRA rank 1/2 usa o mesmo numero de textos de treino que SAINT;
+- adicionados roteamentos:
+  - `validation_gradient`;
+  - `validation_magnitude_activation`.
+
+### Roteamento por Mini-Validacao
+
+Configuracao:
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.2.self_attn.v_proj.weight
+budget: 8192
+train_texts: 2
+validation_texts: 4
+max_length: 8
+routing_max_length: 8
+max_memory: 0=12GiB,cpu=64GiB
+max_cuda_gb: 23
+```
+
+Resultado:
+
+| roteamento | status | pico CUDA |
+|---|---|---:|
+| `validation_gradient`, 12GiB | falhou | 29.962 GB |
+| `validation_gradient`, 8GiB | falhou | 29.987 GB |
+
+Leitura:
+
+```text
+selecionar blocos por gradiente real de mini-validacao ainda nao cabe no limite
+de 23 GB para 14B.
+```
+
+### Proxy Barato de Validacao
+
+Para manter a ideia de validacao sem backward completo, foi testado:
+
+```text
+validation_magnitude_activation
+```
+
+Resultado:
+
+| target | metodo | loss delta | params | pico treino CUDA |
+|---|---|---:|---:|---:|
+| layer 2 `v_proj` | SAINT validation proxy | +0.073896 | 8192 | 15.782 GB |
+| layer 2 `v_proj` | LoRA rank 1 | -0.003053 | 6144 | 15.785 GB |
+| layer 2 `v_proj` | LoRA rank 2 | falhou | 12288 | 26.703 GB |
+| layer 3 `v_proj` | SAINT validation proxy | +0.058203 | 8192 | 15.782 GB |
+| layer 3 `v_proj` | LoRA rank 1 | -0.000484 | 6144 | 15.785 GB |
+| layer 3 `v_proj` | LoRA rank 2 | falhou | 12288 | 26.703 GB |
+
+Leitura:
+
+```text
+o proxy de validacao cabe em memoria, mas piorou a loss nos targets testados.
+LoRA rank 1 melhorou pouco; LoRA rank 2 ainda estoura memoria no caminho atual.
+```
+
+### Controle Activation com Multitexto
+
+Para separar o efeito de "mais textos" do efeito do novo roteador, foi repetido
+`activation` com os mesmos textos.
+
+Config:
+
+```text
+target: model.layers.2.self_attn.v_proj.weight
+budget: 8192
+train_texts: 2
+validation_texts: 4
+steps: 4
+lr_decay: 0.8
+```
+
+Resultado:
+
+| metodo | loss delta | params | ganho/param | pico treino CUDA |
+|---|---:|---:|---:|---:|
+| SAINT activation | -0.182964 | 8192 | 2.2335e-05 | 15.782 GB |
+| LoRA rank 1 | +0.006042 | 6144 | 0.0 | 15.785 GB |
+| LoRA rank 2 | falhou | 12288 | 0.0 | 26.703 GB |
+
+Leitura:
+
+```text
+o problema nao foi apenas usar mais textos. O roteador activation continuou
+melhorando train loss no setup multitexto, enquanto o proxy de validacao piorou.
+```
+
+### Veredito
+
+```text
+Marco 7 passou como diagnostico, mas nao resolveu generalizacao.
+```
+
+O caminho agora tem validacao durante treino e early stopping, mas a escolha de
+blocos por mini-validacao ainda precisa de uma tecnica mais barata e mais
+fiel. O criterio de fechamento da Fase 15 ainda nao foi atingido, porque o
+ganho de treino nao se converteu em validacao melhor de forma consistente.
+
+## Proximo Marco
+
+Marco 8 deve focar em roteamento de validacao barato e competitivo:
+
+- selecionar candidatos por `activation` e ranquear apenas um subconjunto por
+  mini-validacao;
+- medir ganho real de validacao por bloco sem backward completo quando possivel;
+- aplicar rollback de candidatos antes de escolher o delta final;
+- tornar LoRA rank 2 esparso/low-rank sem update denso temporario;
+- aumentar `train_texts` e `validation_texts` gradualmente;
+- manter `activation` como baseline 14B ate o roteador de validacao vencer.

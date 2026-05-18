@@ -28,13 +28,20 @@ def _gb(value: int) -> float:
 
 
 def _first_text(path: str) -> str:
+    return _text_items(path, 1)[0]
+
+
+def _text_items(path: str, count: int) -> list[str]:
     source = Path(path)
     if not source.exists():
-        return "simple ai node training"
+        return ["simple ai node training"]
+    values = []
     for line in source.read_text(encoding="utf-8", errors="ignore").splitlines():
         if line.strip():
-            return line.strip()
-    return "simple ai node training"
+            values.append(line.strip())
+        if len(values) >= count:
+            return values
+    return values or ["simple ai node training"]
 
 
 def _row_from_saint(result: dict[str, Any], *, budget: int, max_memory: str) -> dict[str, Any]:
@@ -87,6 +94,7 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         budget=budget,
         batch_size=args.batch_size,
         train_texts=args.train_texts,
+        validation_texts=args.validation_texts,
         max_length=args.max_length,
         learning_rate=args.learning_rate,
         lr_decay=args.lr_decay,
@@ -97,6 +105,9 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         target_device=args.target_device,
         max_cuda_gb=args.max_cuda_gb,
         gradient_checkpointing=args.gradient_checkpointing,
+        validate_during_train=args.validate_during_train,
+        early_stopping=args.early_stopping,
+        early_stopping_min_delta=args.early_stopping_min_delta,
         hf_device_map=args.hf_device_map,
         hf_max_memory=max_memory,
         hf_offload_folder=str(Path(args.out) / f"offload_{label}"),
@@ -129,6 +140,8 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
         str(values.batch_size),
         "--train-texts",
         str(values.train_texts),
+        "--validation-texts",
+        str(values.validation_texts),
         "--max-length",
         str(values.max_length),
         "--learning-rate",
@@ -156,6 +169,11 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
     ]
     if values.gradient_checkpointing:
         command.append("--gradient-checkpointing")
+    if values.validate_during_train:
+        command.append("--validate-during-train")
+    if values.early_stopping:
+        command.append("--early-stopping")
+        command.extend(["--early-stopping-min-delta", str(values.early_stopping_min_delta)])
     command.append("--measure-loss")
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     result_path = Path(values.out) / "phase15_train_only_result.json"
@@ -170,11 +188,11 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
     }
 
 
-def _load_batch(tokenizer, text: str, *, max_length: int, device):
+def _load_batch(tokenizer, texts: list[str], *, max_length: int, device):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
     encoded = tokenizer(
-        [text],
+        texts,
         return_tensors="pt",
         padding=True,
         truncation=True,
@@ -191,7 +209,7 @@ def _plain_loss(model, input_ids, attention_mask):
     return model(**kwargs).loss
 
 
-def _lora_rank1(args) -> dict[str, Any]:
+def _lora_rank(args, *, rank: int) -> dict[str, Any]:
     from saint.adapters.huggingface_loading import load_causal_lm, model_dtype
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -213,7 +231,7 @@ def _lora_rank1(args) -> dict[str, Any]:
     tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
     input_ids, attention_mask = _load_batch(
         tokenizer,
-        _first_text(args.corpus),
+        _text_items(args.corpus, args.train_texts),
         max_length=args.max_length,
         device=device,
     )
@@ -226,9 +244,9 @@ def _lora_rank1(args) -> dict[str, Any]:
     weight = named[target]
     rows, cols = weight.shape
     dtype = model_dtype(torch, args.model_dtype) or weight.dtype
-    a = (torch.randn(rows, 1, device=weight.device, dtype=dtype) * 0.01).requires_grad_()
+    a = (torch.randn(rows, rank, device=weight.device, dtype=dtype) * 0.01).requires_grad_()
     b = (
-        torch.randn(1, cols, device=weight.device, dtype=dtype) * args.lora_b_init_scale
+        torch.randn(rank, cols, device=weight.device, dtype=dtype) * args.lora_b_init_scale
     ).requires_grad_()
     optimizer = torch.optim.AdamW([a, b], lr=args.lora_learning_rate)
     model.train()
@@ -262,9 +280,9 @@ def _lora_rank1(args) -> dict[str, Any]:
     if peak / 1_000_000_000 > args.max_cuda_gb:
         raise RuntimeError(f"CUDA budget exceeded during lora: {peak / 1_000_000_000:.3f} GB")
     return {
-        "method": "lora_rank1_train_only",
+        "method": f"lora_rank{rank}_train_only",
         "budget": None,
-        "rank": 1,
+        "rank": rank,
         "max_memory": args.lora_max_memory,
         "status": "ok",
         "elapsed_s": elapsed,
@@ -309,20 +327,22 @@ def run(args) -> dict[str, Any]:
                 max_memory=max_memory,
             )
             rows.append(_row_from_saint(result, budget=budget, max_memory=max_memory))
-    if any(row["status"] == "ok" and (row.get("train_cuda_gb") or 99) <= args.max_cuda_gb for row in rows):
-        try:
-            rows.append(_lora_rank1(args))
-        except Exception as exc:  # pragma: no cover - large-model diagnostic.
-            rows.append(
-                {
-                    "method": "lora_rank1_train_only",
-                    "budget": None,
-                    "max_memory": args.lora_max_memory,
-                    "status": "failed",
-                    "error": str(exc),
-                    "train_cuda_gb": None,
-                }
-            )
+    viable = any(row["status"] == "ok" and (row.get("train_cuda_gb") or 99) <= args.max_cuda_gb for row in rows)
+    if viable:
+        for rank in _ints(args.lora_ranks):
+            try:
+                rows.append(_lora_rank(args, rank=rank))
+            except Exception as exc:  # pragma: no cover - large-model diagnostic.
+                rows.append(
+                    {
+                        "method": f"lora_rank{rank}_train_only",
+                        "budget": None,
+                        "max_memory": args.lora_max_memory,
+                        "status": "failed",
+                        "error": str(exc),
+                        "train_cuda_gb": None,
+                    }
+                )
     result = {"model": args.model, "rows": rows}
     (root / "phase15_compare_results.json").write_text(
         dumps(result, indent=2),
@@ -348,6 +368,7 @@ def main() -> None:
     )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--train-texts", type=int, default=1)
+    parser.add_argument("--validation-texts", type=int, default=1)
     parser.add_argument("--max-length", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=0.001)
     parser.add_argument("--lr-decay", type=float, default=1.0)
@@ -358,9 +379,13 @@ def main() -> None:
     parser.add_argument("--target-device", default="cuda")
     parser.add_argument("--max-cuda-gb", type=float, default=23.0)
     parser.add_argument("--gradient-checkpointing", action="store_true")
+    parser.add_argument("--validate-during-train", action="store_true")
+    parser.add_argument("--early-stopping", action="store_true")
+    parser.add_argument("--early-stopping-min-delta", type=float, default=0.0)
     parser.add_argument("--hf-device-map", default="auto")
     parser.add_argument("--lora-max-memory", default="0=14GiB,cpu=64GiB")
     parser.add_argument("--lora-learning-rate", type=float, default=0.001)
+    parser.add_argument("--lora-ranks", default="1")
     parser.add_argument("--lora-b-init-scale", type=float, default=0.0)
     args = parser.parse_args()
     print(dumps(run(args), indent=2))
