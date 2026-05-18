@@ -258,3 +258,146 @@ Marco 3 deve atacar o pico de memoria antes de tentar qualidade:
 - testar backward somente com uma janela curta e sem avaliacao final;
 - medir memoria em subetapas: load, routing, train, checkpoint;
 - so reativar LoRA 14B depois de um step SAINT completo abaixo de 5 minutos.
+
+## Marco 3 - Train-Only 14B Sem Grid
+
+Status: **concluido**.
+
+### Mudancas
+
+- criado `scripts/benchmark_huggingface_phase15_train_only.py`;
+- o caminho HF aceita `train_only` para pular:
+  - base eval;
+  - merge eval;
+  - generation;
+  - validacao final separada;
+- o adapter registra tempos de subetapas:
+  - load;
+  - routing;
+  - train;
+  - checkpoint payload;
+- o adapter ativa `gradient_checkpointing` quando solicitado;
+- o treino muda o modelo para `train()` durante o backward e volta para
+  `eval()` depois;
+- o checkpoint e escrito pelo runtime sem recarregar o modelo.
+
+### Tentativa com 18 GiB
+
+Configuracao:
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.0.self_attn.q_proj.weight
+device_map: auto
+max_memory: 0=18GiB,cpu=64GiB
+budget: 1024
+steps: 1
+max_length: 4
+gradient_checkpointing: true
+train_only: true
+```
+
+Resultado:
+
+```text
+RuntimeError: CUDA budget exceeded during train: 29.647 GB
+```
+
+Leitura:
+
+```text
+18 GiB ainda deixa camadas demais em GPU; o backward com offload cria pico acima
+do limite da RTX 4090.
+```
+
+### Tentativa com 14 GiB
+
+Comando:
+
+```bash
+python scripts/benchmark_huggingface_phase15_train_only.py \
+  --model models/Qwen2.5-14B \
+  --out runs/phase15_marco3_qwen25_14b_train_only_layer0_14gib \
+  --device cuda \
+  --model-dtype bfloat16 \
+  --hf-device-map auto \
+  --hf-max-memory "0=14GiB,cpu=64GiB" \
+  --hf-offload-folder runs/phase15_marco3_offload_train_only_14gib \
+  --target-names model.layers.0.self_attn.q_proj.weight \
+  --target-device cuda \
+  --budget 1024 \
+  --steps 1 \
+  --batch-size 1 \
+  --train-texts 1 \
+  --max-length 4 \
+  --routing-method activation \
+  --routing-max-length 4 \
+  --routing-batch-size 1 \
+  --learning-rate 0.001 \
+  --max-cuda-gb 23 \
+  --gradient-checkpointing
+```
+
+Resultado:
+
+| metrica | valor |
+|---|---:|
+| status | ok |
+| elapsed_s_total | 45.948 |
+| train_s | 3.444 |
+| routing_s | 2.219 |
+| load_s | 37.341 |
+| checkpoint_payload_s | 0.000463 |
+| train_loss | 6.944987 |
+| tokens/s | 0.871 |
+| parametros treinaveis | 1024 |
+| delta JSON bytes | 81818 |
+| optimizer bytes | 163 |
+| load CUDA GB | 13.402 |
+| routing CUDA GB | 14.687 |
+| train CUDA GB | 17.401 |
+
+Checkpoint:
+
+```text
+runs/phase15_marco3_qwen25_14b_train_only_layer0_14gib
+```
+
+Arquivos:
+
+```text
+deltas.saintdelta.json
+optimizer.saintopt
+checkpoint.json
+metrics.json
+logs.jsonl
+```
+
+### Veredito
+
+```text
+Marco 3 passou.
+```
+
+SAINT completou um step autograd 14B em modo train-only abaixo de 5 minutos,
+com pico de treino abaixo de 23 GB e checkpoint gerado sem merge/eval.
+
+Isto ainda nao prova qualidade. Prova que o caminho minimo:
+
+```text
+load -> routing -> train -> checkpoint
+```
+
+funciona em 14B com offload agressivo.
+
+## Proximo Marco
+
+Marco 4 deve transformar o smoke em experimento comparavel:
+
+- repetir o train-only com budgets 1024, 4096 e 8192;
+- testar `max_memory` 12GiB, 14GiB e 16GiB;
+- medir custo de load separado do custo de treino em runs repetidos;
+- adicionar avaliacao posterior opcional em processo separado;
+- testar LoRA 14B rank 1 somente se couber no mesmo limite CUDA;
+- comparar ganho por parametro treinavel contra o primeiro baseline LoRA viavel;
+- manter o criterio de abortar se `train_cuda_peak_bytes` passar de 23 GB.

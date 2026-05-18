@@ -49,6 +49,24 @@ def _check_cuda_budget(torch, device, metadata: dict[str, Any], stage: str) -> N
         )
 
 
+def _cuda_peak(torch, device) -> int:
+    return int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
+
+
+def _clear_cuda(torch, device) -> None:
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
+def _enable_memory_savers(model, metadata: dict[str, Any]) -> None:
+    if bool(metadata.get("gradient_checkpointing", False)) and hasattr(
+        model, "gradient_checkpointing_enable"
+    ):
+        model.gradient_checkpointing_enable()
+    if hasattr(model, "config") and hasattr(model.config, "use_cache"):
+        model.config.use_cache = False
+
+
 def _texts(metadata: dict[str, Any]) -> list[str]:
     values = metadata.get("texts")
     if isinstance(values, list) and values:
@@ -186,8 +204,9 @@ def _train_inplace_sparse(
     *,
     steps: int,
     learning_rate: float,
-) -> None:
+) -> float:
     named = dict(model.named_parameters())
+    last_loss = 0.0
     for name in coordinates:
         named[name].requires_grad_(True)
     for _ in range(steps):
@@ -196,6 +215,7 @@ def _train_inplace_sparse(
             _inplace_delta(torch, named, deltas, coordinates, sign=1.0)
             try:
                 loss = _plain_loss(model, batch_ids, batch_mask) / len(train_batches)
+                last_loss = float(loss.detach().cpu().item() * len(train_batches))
                 loss.backward()
             finally:
                 _inplace_delta(torch, named, deltas, coordinates, sign=-1.0)
@@ -208,6 +228,7 @@ def _train_inplace_sparse(
         _zero_target_grads(named, coordinates)
     for name in coordinates:
         named[name].requires_grad_(False)
+    return last_loss
 
 
 def _target_shapes(model, names: list[str]) -> dict[str, list[int]]:
@@ -248,12 +269,9 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         torch.cuda.reset_peak_memory_stats(device)
     dtype = _dtype(torch, metadata)
     model = load_causal_lm(AutoModelForCausalLM, source, device, metadata)
+    _enable_memory_savers(model, metadata)
     tokenizer = AutoTokenizer.from_pretrained(str(source), local_files_only=True)
-    load_cuda_peak = (
-        int(torch.cuda.max_memory_allocated(device))
-        if device.type == "cuda"
-        else 0
-    )
+    load_cuda_peak = _cuda_peak(torch, device)
     _check_cuda_budget(torch, device, metadata, "load")
     model.eval()
     for param in model.parameters():
@@ -293,8 +311,11 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     target_shapes = _target_shapes(model, names)
     routing_method = str(metadata.get("routing_method", "gradient"))
     delta_application = str(metadata.get("delta_application", "functional"))
+    train_only = bool(metadata.get("train_only", False))
+    stage_elapsed: dict[str, float] = {"load_s": perf_counter() - start}
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
+    routing_start = perf_counter()
     deltas, coordinates = build_routed_deltas(
         torch,
         functional_call,
@@ -306,19 +327,18 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         routing_method=routing_method,
         loss_fn=_loss,
     )
-    routing_cuda_peak = (
-        int(torch.cuda.max_memory_allocated(device))
-        if device.type == "cuda"
-        else 0
-    )
+    routing_elapsed = perf_counter() - routing_start
+    routing_cuda_peak = _cuda_peak(torch, device)
     _check_cuda_budget(torch, device, metadata, "routing")
+    _clear_cuda(torch, device)
     learning_rate = float(metadata.get("learning_rate", 1e-3))
     named = dict(model.named_parameters())
-    if delta_application == "inplace":
+    initial_loss = 0.0
+    if not train_only and delta_application == "inplace":
         initial_loss = _inplace_loss_value(
             torch, model, named, deltas, coordinates, input_ids, attention_mask
         )
-    else:
+    elif not train_only:
         optimizer = torch.optim.AdamW(list(deltas.values()), lr=learning_rate)
         initial_loss = _loss_value(
             functional_call,
@@ -327,12 +347,16 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             input_ids,
             attention_mask,
         )
+    elif delta_application != "inplace":
+        optimizer = torch.optim.AdamW(list(deltas.values()), lr=learning_rate)
     steps = max(1, int(config.steps))
     train_start = perf_counter()
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
+    final_loss = initial_loss
+    model.train()
     if delta_application == "inplace":
-        _train_inplace_sparse(
+        final_loss = _train_inplace_sparse(
             torch,
             model,
             deltas,
@@ -352,16 +376,17 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
                     batch_ids,
                     batch_mask,
                 ) / len(train_batches)
+                final_loss = float(loss.detach().cpu().item() * len(train_batches))
                 loss.backward()
             optimizer.step()
+    model.eval()
     train_elapsed = max(perf_counter() - train_start, 1e-9)
-    train_cuda_peak = (
-        int(torch.cuda.max_memory_allocated(device))
-        if device.type == "cuda"
-        else 0
-    )
+    train_cuda_peak = _cuda_peak(torch, device)
     _check_cuda_budget(torch, device, metadata, "train")
-    if delta_application == "inplace":
+    _clear_cuda(torch, device)
+    if train_only:
+        validation_loss = final_loss
+    elif delta_application == "inplace":
         final_loss = _inplace_loss_value(
             torch, model, named, deltas, coordinates, input_ids, attention_mask
         )
@@ -385,10 +410,16 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         )
     parameter_count = int(sum(delta.numel() for delta in deltas.values()))
     tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * steps
-    cuda_peak = (
-        int(torch.cuda.max_memory_allocated(device))
-        if device.type == "cuda"
-        else 0
+    checkpoint_start = perf_counter()
+    delta_payload = _delta_payload(deltas, coordinates, target_shapes)
+    checkpoint_elapsed = perf_counter() - checkpoint_start
+    cuda_peak = _cuda_peak(torch, device)
+    stage_elapsed.update(
+        {
+            "routing_s": routing_elapsed,
+            "train_s": train_elapsed,
+            "checkpoint_payload_s": checkpoint_elapsed,
+        }
     )
     return MiniTransformerResult(
         name="hf_saint_forward_smoke",
@@ -398,7 +429,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         optimizer_state_values=parameter_count * 2,
         elapsed_s=perf_counter() - start,
         metadata={
-            "delta_payload": _delta_payload(deltas, coordinates, target_shapes),
+            "delta_payload": delta_payload,
             "adapter": "huggingface_causal_lm",
             "autograd": True,
             "real_forward": True,
@@ -415,13 +446,16 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "load_cuda_peak_bytes": load_cuda_peak,
             "routing_cuda_peak_bytes": routing_cuda_peak,
             "train_cuda_peak_bytes": train_cuda_peak,
+            "stage_elapsed": stage_elapsed,
             "delta_payload_format": "saint_sparse_delta",
             "routing_method": routing_method,
             "delta_application": delta_application,
             "routing_max_length": routing_length,
             "routing_batch_size": routing_batch_size,
             "target_matrices": names,
-            "marco": "fase_13_marco_3",
+            "train_only": train_only,
+            "gradient_checkpointing": bool(metadata.get("gradient_checkpointing", False)),
+            "marco": str(metadata.get("marco", "fase_13_marco_3")),
         },
     )
 

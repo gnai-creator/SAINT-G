@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 15 - Escala 14B
 Fase anterior: Fase 14 concluida com ressalvas
-Proximo marco: Fase 15 Marco 3 - Reducao de Pico de Memoria
+Proximo marco: Fase 15 Marco 4 - Comparacao Train-Only 14B
 ```
 
 Resumo do estado:
@@ -2379,12 +2379,60 @@ o caminho de treino/validacao ainda gera pico de memoria alto demais.
 
 Proximo marco:
 
-- evitar segunda carga completa no grid/validacao 14B;
-- permitir modo `train-only` sem base eval, merge eval e generation;
-- fazer checkpoint do delta sem recarregar o modelo;
-- separar script 14B de treino minimo do grid multiseed;
-- testar backward curto sem avaliacao final;
-- manter LoRA 14B adiado ate SAINT completar um step abaixo de 5 minutos.
+- repetir train-only com budgets maiores;
+- testar faixas de `max_memory`;
+- adicionar avaliacao posterior opcional em processo separado;
+- testar LoRA 14B rank 1 somente no mesmo limite de CUDA.
+
+### Marco 3 - Train-Only 14B Sem Grid
+
+Status: **concluido**.
+
+Mudancas:
+
+- criado `scripts/benchmark_huggingface_phase15_train_only.py`;
+- adicionado modo `train_only` no caminho HF;
+- removidos base eval, merge eval e generation do smoke 14B;
+- ativado `gradient_checkpointing` opcional;
+- registrados tempos de load, routing, train e checkpoint payload;
+- checkpoint gerado pelo runtime sem recarregar modelo.
+
+Resultado principal:
+
+| metrica | valor |
+|---|---:|
+| modelo | Qwen2.5-14B |
+| target | `model.layers.0.self_attn.q_proj.weight` |
+| max_memory | `0=14GiB,cpu=64GiB` |
+| status | ok |
+| elapsed_s_total | 45.948 |
+| load_s | 37.341 |
+| routing_s | 2.219 |
+| train_s | 3.444 |
+| checkpoint_payload_s | 0.000463 |
+| train CUDA GB | 17.401 |
+| parametros treinaveis | 1024 |
+| delta JSON bytes | 81818 |
+
+Veredito:
+
+```text
+SAINT completou um step autograd 14B abaixo de 5 minutos com checkpoint.
+```
+
+Limite observado:
+
+```text
+0=18GiB,cpu=64GiB ainda estoura no treino: 29.647 GB.
+```
+
+Proximo marco:
+
+- repetir com budgets 1024, 4096 e 8192;
+- testar `max_memory` 12GiB, 14GiB e 16GiB;
+- medir custo de load separado do custo de treino em runs repetidos;
+- adicionar avaliacao posterior opcional;
+- comparar contra LoRA 14B rank 1 se couber no mesmo budget CUDA.
 
 ## Fase 16 - Escala 70B
 
