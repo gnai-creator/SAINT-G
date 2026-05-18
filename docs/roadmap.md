@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 12 - Validacao de Escala de Checkpoint
-Fase anterior: Fase 11 concluida
-Proximo marco: Fase 12 - Validacao de Escala de Checkpoint
+Fase atual: Fase 13 - Modelos Hugging Face Pequenos
+Fase anterior: Fase 12 concluida
+Proximo marco: Fase 13 - Modelos Hugging Face Pequenos
 ```
 
 Resumo do estado:
@@ -48,7 +48,7 @@ Resumo do estado:
 | 9 | Adaptador DRM Transformer | Concluida |
 | 10 | Checkpoint Robusto | Concluida |
 | 11 | Checkpoint Escalavel | Concluida |
-| 12 | Validacao de Escala de Checkpoint | Pendente |
+| 12 | Validacao de Escala de Checkpoint | Concluida |
 | 13+ | Modelos reais e escala | Pendente |
 
 ## Fase 0 - Fundacao Conceitual
@@ -1288,7 +1288,7 @@ AdamW e usando checkpoints shardados/compactos com validacao de integridade.
 
 ## Fase 12 - Validacao de Escala de Checkpoint
 
-Status: **pendente**.
+Status: **concluida**.
 
 ### Objetivo
 
@@ -1403,10 +1403,24 @@ migrados automaticamente para v2 com `migrated_from`.
 
 #### Fase 12E - Qualidade Numerica
 
+Status: **concluida**.
+
 - validar `bfloat16` e `int8` contra perda de qualidade em tarefa real;
 - comparar loss apos `resume` por dtype;
 - comparar loss apos `merge` por dtype;
 - definir quando cada dtype e aceitavel.
+
+Resultado:
+
+| dtype | bytes | merged_loss | delta loss vs float32 |
+|---|---:|---:|---:|
+| float32 | 1401 | 0.000123203766 | 0.000000000000 |
+| float16 | 944 | 0.000123203746 | -0.000000000020 |
+| bfloat16 | 945 | 0.000123204227 | 0.000000000461 |
+| int8 | 799 | 0.000123203819 | 0.000000000053 |
+
+`float16` fica como formato compacto inicial recomendado. `int8` passou no
+mini-transformer pequeno, mas continua experimental para modelos reais maiores.
 
 ### Perguntas
 
@@ -1426,6 +1440,15 @@ checkpoint grande -> validar -> retomar -> merge parcial -> avaliar
 
 com uso de memoria menor que carregar o payload completo e com perda numerica
 medida por dtype.
+
+### Resultado Final
+
+```text
+Fase 12 concluida.
+```
+
+A validacao de checkpoint agora cobre shards grandes, merge parcial, custo de
+I/O por dtype, migracao de manifesto e qualidade numerica inicial por dtype.
 
 ## Fase 13 - Modelos Hugging Face Pequenos
 

@@ -228,8 +228,79 @@ def benchmark_dtype_io(
     }
 
 
+def benchmark_dtype_quality(
+    run_dir: str | Path,
+    *,
+    dtypes: tuple[str, ...] = ("float32", "float16", "bfloat16", "int8"),
+) -> dict[str, Any]:
+    from saint.config import RuntimeConfig
+    from saint.runtime import merge_runtime, train_runtime
+    from saint.transformer.model import distillation_loss
+
+    target = Path(run_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    results = []
+    baseline_loss = None
+    for dtype in dtypes:
+        output_dir = target / dtype
+        config = RuntimeConfig(
+            experiment_name=f"phase12e_{dtype}",
+            output_dir=str(output_dir),
+            task="mini_transformer",
+            method="mini_saint_dynamic_delta",
+            steps=1,
+            parameter_budget=24,
+            seed=31,
+            metadata={
+                "checkpoint_dtype": dtype,
+                "checkpoint_shard_bytes": 512,
+            },
+        )
+        train_result = train_runtime(config)
+        merged = merge_runtime(output_dir)
+        from saint.adapters import make_task
+
+        task = make_task(config)
+        merged_loss = distillation_loss(
+            merged["merged_weights"],
+            task.target_weights,
+            task.test_sequences,
+        )
+        if dtype == "float32":
+            baseline_loss = merged_loss
+        results.append(
+            {
+                "dtype": dtype,
+                "train_loss": train_result["train_loss"],
+                "checkpoint_test_loss": train_result["test_loss"],
+                "merged_loss": merged_loss,
+                "loss_delta_vs_float32": 0.0 if baseline_loss is None else merged_loss - baseline_loss,
+                "delta_format": next(
+                    item["format"]
+                    for item in train_result["files"]
+                    if item["payload"] == "delta"
+                ),
+                "payload_bytes": next(
+                    int(item["bytes"])
+                    for item in train_result["files"]
+                    if item["payload"] == "delta"
+                ),
+            }
+        )
+    baseline_loss = baseline_loss if baseline_loss is not None else 0.0
+    for item in results:
+        item["loss_delta_vs_float32"] = item["merged_loss"] - baseline_loss
+    return {
+        "task": "mini_transformer",
+        "method": "mini_saint_dynamic_delta",
+        "baseline_dtype": "float32",
+        "results": results,
+    }
+
+
 __all__ = [
     "benchmark_dtype_io",
+    "benchmark_dtype_quality",
     "benchmark_large_shards",
     "benchmark_partial_shard_read",
     "synthetic_delta_payload",

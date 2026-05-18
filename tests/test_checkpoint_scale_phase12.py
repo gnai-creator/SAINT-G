@@ -5,6 +5,7 @@ import unittest
 from saint.checkpoints.robust import read_matrix_payload_entry, write_matrix_payload
 from saint.checkpoints.scale import (
     benchmark_dtype_io,
+    benchmark_dtype_quality,
     benchmark_large_shards,
     benchmark_partial_shard_read,
     synthetic_delta_payload,
@@ -127,6 +128,19 @@ class CheckpointScalePhase12Tests(unittest.TestCase):
             self.assertLess(by_dtype["float16"]["size_ratio_vs_float32"], 1.0)
             self.assertLess(by_dtype["int8"]["size_ratio_vs_float32"], 1.0)
             self.assertLess(by_dtype["float16"]["max_abs_error"], 0.001)
+
+    def test_dtype_quality_benchmark_reports_merged_loss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = benchmark_dtype_quality(
+                tmp,
+                dtypes=("float32", "float16", "int8"),
+            )
+            by_dtype = {item["dtype"]: item for item in result["results"]}
+
+            self.assertEqual(set(by_dtype), {"float32", "float16", "int8"})
+            self.assertEqual(by_dtype["float32"]["loss_delta_vs_float32"], 0.0)
+            self.assertLess(abs(by_dtype["float16"]["loss_delta_vs_float32"]), 1e-6)
+            self.assertIn("merged_loss", by_dtype["int8"])
 
 
 if __name__ == "__main__":
