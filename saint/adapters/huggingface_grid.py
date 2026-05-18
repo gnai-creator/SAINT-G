@@ -12,6 +12,7 @@ from saint.adapters.huggingface_benchmark import (
     _gain_per_parameter,
     _lora_finetune,
     _loss,
+    _model_dtype,
     _require_deps,
 )
 from saint.adapters.huggingface_validation import (
@@ -33,15 +34,17 @@ def _base_validation(
     *,
     device_name: str,
     max_length: int,
+    model_dtype: str | None = None,
 ) -> dict[str, float]:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    load_kwargs = {"local_files_only": True}
+    dtype = _model_dtype(torch, model_dtype)
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     input_ids, attention_mask = _batch(
         tokenizer,
@@ -124,6 +127,8 @@ def run_hf_phase13_grid(
     saint_routing_method: str = "gradient",
     saint_routing_max_length: int | None = None,
     saint_routing_batch_size: int | None = None,
+    model_dtype: str | None = None,
+    max_cuda_gb: float | None = None,
     prompts: tuple[str, ...] = ("SAINT", "Checkpoint", "LoRA"),
 ) -> dict[str, Any]:
     root = Path(run_dir)
@@ -134,6 +139,7 @@ def run_hf_phase13_grid(
         validation_texts,
         device_name=device,
         max_length=max_length,
+        model_dtype=model_dtype,
     )
     rows: list[dict[str, Any]] = []
     generation: dict[str, dict[str, str]] = {}
@@ -156,6 +162,8 @@ def run_hf_phase13_grid(
                 routing_method=saint_routing_method,
                 routing_max_length=saint_routing_max_length,
                 routing_batch_size=saint_routing_batch_size,
+                model_dtype=model_dtype,
+                max_cuda_gb=max_cuda_gb,
             )
             weights = row.pop("merged_weights")
             run_path = combo / f"saint_budget_{budget}_seed_{seed}"
@@ -167,12 +175,18 @@ def run_hf_phase13_grid(
                 device_name = row.get("device", device)
                 for prompt in prompts:
                     generation[prompt] = {
-                        "base": _generate(model_path, prompt=prompt, device_name=device_name),
+                        "base": _generate(
+                            model_path,
+                            prompt=prompt,
+                            device_name=device_name,
+                            model_dtype=model_dtype,
+                        ),
                         "saint_merged": _generate(
                             model_path,
                             prompt=prompt,
                             device_name=device_name,
                             merged_weights=weights,
+                            model_dtype=model_dtype,
                         ),
                     }
     for rank in lora_ranks:
@@ -192,6 +206,7 @@ def run_hf_phase13_grid(
                 validation_texts=validation_texts,
                 artifact_path=artifact,
                 batch_size=batch_size,
+                model_dtype=model_dtype,
             )
             row.update(
                 {

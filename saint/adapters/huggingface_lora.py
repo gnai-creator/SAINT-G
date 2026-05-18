@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from saint.adapters.huggingface_benchmark import _batch, _loss, _require_deps
+from saint.adapters.huggingface_benchmark import _model_dtype
 
 
 def load_lora_artifact(path: str | Path) -> dict[str, Any]:
@@ -43,15 +44,17 @@ def evaluate_lora_artifact(
     *,
     device_name: str,
     max_length: int,
+    model_dtype: str | None = None,
 ) -> dict[str, Any]:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    load_kwargs = {"local_files_only": True}
+    dtype = _model_dtype(torch, model_dtype)
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     targets = _apply_lora_to_model(torch, model, load_lora_artifact(artifact_path))
     input_ids, attention_mask = _batch(
@@ -75,15 +78,17 @@ def generate_with_lora_artifact(
     prompt: str,
     device_name: str,
     max_new_tokens: int = 8,
+    model_dtype: str | None = None,
 ) -> str:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    load_kwargs = {"local_files_only": True}
+    dtype = _model_dtype(torch, model_dtype)
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     _apply_lora_to_model(torch, model, load_lora_artifact(artifact_path))
     if tokenizer.pad_token is None:

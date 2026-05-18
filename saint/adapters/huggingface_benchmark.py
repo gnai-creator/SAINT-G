@@ -27,6 +27,17 @@ def _device(torch, requested: str):
     return torch.device(requested)
 
 
+def _model_dtype(torch, requested: str | None):
+    value = str(requested or "").lower()
+    if value in {"float16", "fp16"}:
+        return torch.float16
+    if value in {"bfloat16", "bf16"}:
+        return torch.bfloat16
+    if value in {"float32", "fp32"}:
+        return torch.float32
+    return None
+
+
 def _texts() -> list[str]:
     return [
         "simple ai node training",
@@ -81,7 +92,17 @@ def _gain_per_parameter(initial_loss: float, final_loss: float, count: int) -> f
 
 
 def _target_names(model, *, max_targets: int) -> list[str]:
-    keywords = ("c_attn.weight", "c_proj.weight", "lm_head.weight")
+    keywords = (
+        "c_attn.weight",
+        "c_proj.weight",
+        "q_proj.weight",
+        "v_proj.weight",
+        "o_proj.weight",
+        "gate_proj.weight",
+        "up_proj.weight",
+        "down_proj.weight",
+        "lm_head.weight",
+    )
     names = [
         name
         for name, param in model.named_parameters()
@@ -191,7 +212,8 @@ def _lora_merged_params(model, lora: dict[str, Any], *, rank: int, alpha: float)
         key_a = f"{name}.A"
         key_b = f"{name}.B"
         if key_a in lora and key_b in lora:
-            merged[name] = params[name] + (lora[key_a] @ lora[key_b]) * (alpha / rank)
+            update = (lora[key_a] @ lora[key_b]).to(params[name].dtype)
+            merged[name] = params[name] + update * (alpha / rank)
     return merged
 
 
@@ -217,16 +239,18 @@ def _lora_finetune(
     validation_texts: list[str] | None = None,
     artifact_path: str | Path | None = None,
     batch_size: int | None = None,
+    model_dtype: str | None = None,
 ) -> dict[str, Any]:
     torch, functional_call, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     torch.manual_seed(seed)
     device = _device(torch, device_name)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    dtype = _model_dtype(torch, model_dtype)
+    load_kwargs = {"local_files_only": True}
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     train_batches = _batches(
         tokenizer,

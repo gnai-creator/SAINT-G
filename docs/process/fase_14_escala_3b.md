@@ -489,14 +489,131 @@ Motivo:
 - nao tentar full fine-tuning;
 - abortar se pico CUDA passar do budget definido.
 
+## Marco 7 - Ponte 3B Controlada
+
+Status: **concluido com ressalva**.
+
+### Modelo Escolhido
+
+Modelo local:
+
+```text
+Qwen/Qwen2.5-3B
+```
+
+Motivo:
+
+- causal LM base;
+- proximo de 3B parametros;
+- checkpoint local de aproximadamente 6.18 GB;
+- carrega em CUDA com `bfloat16` dentro do budget da RTX 4090.
+
+### Mudancas
+
+- benchmarks HF aceitam `--model-dtype` e `--max-cuda-gb`;
+- `from_pretrained` usa dtype economico quando configurado;
+- caminho SAINT aborta se `load`, `routing` ou `train` excederem budget CUDA;
+- CLI aceita `--skip-lora` e `--skip-generation` para smoke controlado;
+- alvos default agora cobrem familias GPT e Qwen:
+  `q_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`;
+- deltas SAINT usam o mesmo dtype do peso alvo;
+- roteamento pode limitar scores ao recorte salvo no checkpoint, evitando delta
+  treinado fora do payload;
+- LoRA bf16 faz merge do delta no dtype do peso base.
+
+### Smoke Sem Treino
+
+```text
+model_dtype: float16
+load_s: 14.986
+forward_s: 0.284
+load_cuda_gb: 5.854
+peak_cuda_gb: 5.873
+loss: 8.064380
+```
+
+O smoke passou dentro do budget.
+
+### SAINT Activation
+
+Configuracao:
+
+```text
+model_dtype: bfloat16
+budget: 4096
+steps: 1
+batch_size: 1
+routing_method: activation
+routing_max_length: 8
+routing_batch_size: 1
+max_cuda_gb: 22
+```
+
+Resultado:
+
+| metrica | valor |
+|---|---:|
+| base validation loss | 7.690704 |
+| SAINT validation loss | 7.688824 |
+| merged validation loss | 7.688824 |
+| parametros treinaveis | 4096 |
+| delta sparse values | 4096 |
+| delta only bytes | 113307 |
+| checkpoint bytes | 309252 |
+| load CUDA GB | 5.863 |
+| routing CUDA GB | 5.864 |
+| train CUDA GB | 6.016 |
+| peak CUDA GB | 11.869 |
+| merge CUDA GB | 0.017 |
+| tokens/s | 97.155 |
+| resume quality delta | 0.000000 |
+
+### Comparacao LoRA Minima
+
+Controle:
+
+```text
+LoRA rank 1
+learning_rate: 0.005
+steps: 1
+batch_size: 1
+model_dtype: bfloat16
+```
+
+| metodo | val loss | params | gain/param | CUDA peak GB |
+|---|---:|---:|---:|---:|
+| SAINT activation | 7.688824 | 4096 | 0.00000613 | 11.869 |
+| LoRA rank 1 | 7.664804 | 6400 | 0.00000684 | 7.630 |
+
+LoRA rank 1 coube e venceu neste microteste.
+
+### Veredito
+
+```text
+Fase 14 Marco 7 passou tecnicamente, mas Fase 14 ainda nao fecha.
+```
+
+O projeto agora consegue:
+
+- carregar um modelo 3B local em CUDA;
+- rodar smoke sem treino;
+- treinar SAINT activation com micro-batch 1;
+- salvar delta esparso real;
+- validar resume/merge;
+- comparar contra LoRA pequeno.
+
+Mas SAINT ainda nao esta competitivo contra LoRA rank 1 em qualidade e pico CUDA
+neste regime. A proxima etapa deve reduzir overhead de memoria e melhorar o
+ganho por parametro antes de declarar a Fase 14 concluida.
+
 ## Proximo Marco
 
-Marco 7 deve iniciar ponte 3B controlada:
+Marco 8 deve otimizar SAINT 3B contra LoRA:
 
-- escolher modelo causal LM proximo de 3B que caiba localmente;
-- carregar em CUDA com dtype economico quando suportado;
-- rodar smoke sem treino primeiro;
-- rodar SAINT `activation` com `budget=4096` ou menor;
-- comparar contra LoRA pequeno se couber;
-- medir load/routing/train/checkpoint/merge;
-- decidir se Fase 14 fecha ou precisa de mais otimizacao.
+- evitar picos duplicados de memoria no caminho funcional;
+- eliminar segunda materializacao de parametros quando possivel;
+- salvar/aplicar deltas esparsos por coordenada sem depender do recorte denso;
+- testar `budget=8192` e `budget=16384` com o mesmo limite CUDA;
+- testar `bfloat16` como dtype padrao para 3B;
+- comparar contra LoRA rank 1 e 2 com seeds adicionais;
+- medir se `gradient_sequential` subset melhora qualidade sem estourar budget.

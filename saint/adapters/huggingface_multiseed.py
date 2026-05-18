@@ -71,6 +71,8 @@ def _markdown(result: dict[str, Any]) -> str:
         "|---|---:|---:|---:|---:|",
     ]
     for method, item in result["aggregate"].items():
+        if not item:
+            continue
         lines.append(
             "| {method} | {count} | {mean:.6f} | {best:.6f} | {gain:.8f} |".format(
                 method=method,
@@ -104,6 +106,8 @@ def run_hf_phase13_multiseed(
     saint_routing_method: str = "gradient",
     saint_routing_max_length: int | None = None,
     saint_routing_batch_size: int | None = None,
+    model_dtype: str | None = None,
+    max_cuda_gb: float | None = None,
     prompts: tuple[str, ...] = ("SAINT", "Checkpoint", "Training"),
 ) -> dict[str, Any]:
     root = Path(run_dir)
@@ -133,6 +137,8 @@ def run_hf_phase13_multiseed(
             saint_routing_method=saint_routing_method,
             saint_routing_max_length=saint_routing_max_length,
             saint_routing_batch_size=saint_routing_batch_size,
+            model_dtype=model_dtype,
+            max_cuda_gb=max_cuda_gb,
             prompts=prompts,
         )
         seed_results.append({"seed": seed, "summary": result["summary"]})
@@ -150,6 +156,7 @@ def run_hf_phase13_multiseed(
             validation_texts,
             device_name=device,
             max_length=max_length,
+            model_dtype=model_dtype,
         )
         if best_lora_artifact is not None
         else {}
@@ -157,12 +164,18 @@ def run_hf_phase13_multiseed(
     generation = {}
     if best_lora_artifact is not None:
         for prompt in prompts:
-            base_text = _generate(model_path, prompt=prompt, device_name=device)
+            base_text = _generate(
+                model_path,
+                prompt=prompt,
+                device_name=device,
+                model_dtype=model_dtype,
+            )
             text = generate_with_lora_artifact(
                 model_path,
                 best_lora_artifact,
                 prompt=prompt,
                 device_name=device,
+                model_dtype=model_dtype,
             )
             generation[prompt] = {
                 "base": base_text,

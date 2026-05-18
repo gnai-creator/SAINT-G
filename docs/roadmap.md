@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 14 - Escala 3B
 Fase anterior: Fase 13 concluida com ressalvas
-Proximo marco: Fase 14 Marco 7 - Ponte 3B Controlada
+Proximo marco: Fase 14 Marco 8 - Otimizacao SAINT 3B contra LoRA
 ```
 
 Resumo do estado:
@@ -2095,7 +2095,7 @@ Condicoes:
 
 ### Marco 7 - Ponte 3B Controlada
 
-Status: **pendente**.
+Status: **concluido com ressalva**.
 
 Objetivo:
 
@@ -2105,13 +2105,58 @@ testar um modelo proximo de 3B sem prometer treino completo.
 
 Entregas:
 
-- escolher modelo causal LM proximo de 3B que caiba localmente;
-- carregar em CUDA com dtype economico quando suportado;
-- rodar smoke de load/forward sem treino;
-- rodar SAINT com roteador `activation`;
-- comparar contra LoRA pequeno se couber;
-- medir load/routing/train/checkpoint/merge;
-- decidir se Fase 14 fecha ou precisa de mais otimizacao.
+- modelo escolhido: `Qwen/Qwen2.5-3B`;
+- carga CUDA validada com dtype economico;
+- smoke de load/forward sem treino passou;
+- SAINT `activation` rodou com `budget=4096`, micro-batch 1 e
+  `routing_max_length=8`;
+- checkpoint salvou delta esparso real com 4096 valores;
+- resume e merge foram validados;
+- LoRA rank 1 coube como controle minimo;
+- load/routing/train/checkpoint/merge foram medidos.
+
+Resultado SAINT 3B:
+
+| metrica | valor |
+|---|---:|
+| base validation loss | 7.690704 |
+| SAINT validation loss | 7.688824 |
+| merged validation loss | 7.688824 |
+| parametros treinaveis | 4096 |
+| delta sparse values | 4096 |
+| checkpoint bytes | 309252 |
+| load CUDA GB | 5.863 |
+| routing CUDA GB | 5.864 |
+| train CUDA GB | 6.016 |
+| peak CUDA GB | 11.869 |
+| tokens/s | 97.155 |
+
+Comparacao minima:
+
+| metodo | val loss | params | gain/param | CUDA peak GB |
+|---|---:|---:|---:|---:|
+| SAINT activation | 7.688824 | 4096 | 0.00000613 | 11.869 |
+| LoRA rank 1 | 7.664804 | 6400 | 0.00000684 | 7.630 |
+
+Veredito:
+
+```text
+Fase 14 Marco 7 passou tecnicamente, mas Fase 14 ainda nao fecha.
+```
+
+Motivo:
+
+- SAINT ja carrega, treina, salva, retoma e mergeia em 3B;
+- LoRA rank 1 ainda vence em qualidade e pico CUDA neste microteste;
+- o proximo marco precisa reduzir overhead e melhorar ganho por parametro.
+
+Proximo marco:
+
+- evitar picos duplicados no caminho funcional;
+- salvar/aplicar deltas esparsos por coordenada sem recorte denso;
+- testar budgets 8192 e 16384;
+- comparar contra LoRA rank 1/2 com seeds adicionais;
+- testar `gradient_sequential` subset como controle de qualidade.
 
 ## Fase 15 - Escala 14B
 

@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 def _score_indices(torch, scores: dict[str, Any], *, budget: int):
     total = sum(score.numel() for score in scores.values())
+    if total <= 0:
+        return {}
     count = max(1, min(budget, total))
     flat = torch.cat([score.detach().abs().cpu().flatten() for score in scores.values()])
     _, selected = torch.topk(flat, k=count)
@@ -144,6 +146,21 @@ def _lm_head_proxy_scores(torch, functional_call, model, names, input_ids, atten
     return scores
 
 
+def _limit_scores(torch, scores: dict[str, Any], limits: dict[str, tuple[int, int]] | None):
+    if not limits:
+        return scores
+    limited = {}
+    for name, score in scores.items():
+        rows, cols = limits.get(name, score.shape)
+        masked = torch.zeros_like(score)
+        masked[: min(rows, score.shape[0]), : min(cols, score.shape[1])] = score[
+            : min(rows, score.shape[0]),
+            : min(cols, score.shape[1]),
+        ]
+        limited[name] = masked
+    return limited
+
+
 def build_routed_deltas(
     torch,
     functional_call,
@@ -155,6 +172,7 @@ def build_routed_deltas(
     attention_mask,
     routing_method: str,
     loss_fn: Callable,
+    score_limits: dict[str, tuple[int, int]] | None = None,
 ):
     named = dict(model.named_parameters())
     if routing_method == "gradient":
@@ -175,6 +193,9 @@ def build_routed_deltas(
         )
     else:
         scores = {name: named[name].detach().abs().cpu() for name in names}
+    if not scores:
+        scores = {name: named[name].detach().abs().cpu() for name in names}
+    scores = _limit_scores(torch, scores, score_limits)
     selected = _score_indices(torch, scores, budget=parameter_budget)
     deltas = {}
     coordinates = {}
@@ -182,7 +203,12 @@ def build_routed_deltas(
         rows, cols = selected.get(name, (None, None))
         if rows is None:
             continue
-        deltas[name] = torch.zeros(rows.numel(), device=named[name].device, requires_grad=True)
+        deltas[name] = torch.zeros(
+            rows.numel(),
+            device=named[name].device,
+            dtype=named[name].dtype,
+            requires_grad=True,
+        )
         coordinates[name] = (rows.to(named[name].device), cols.to(named[name].device))
     return deltas, coordinates
 

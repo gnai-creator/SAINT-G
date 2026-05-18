@@ -34,6 +34,27 @@ def _device(torch, metadata: dict[str, Any]):
     return torch.device(requested)
 
 
+def _dtype(torch, metadata: dict[str, Any]):
+    value = str(metadata.get("model_dtype", "")).lower()
+    if value in {"float16", "fp16"}:
+        return torch.float16
+    if value in {"bfloat16", "bf16"}:
+        return torch.bfloat16
+    if value in {"float32", "fp32"}:
+        return torch.float32
+    return None
+
+
+def _check_cuda_budget(torch, device, metadata: dict[str, Any], stage: str) -> None:
+    if device.type != "cuda" or "max_cuda_gb" not in metadata:
+        return
+    peak_gb = torch.cuda.max_memory_allocated(device) / 1_000_000_000
+    if peak_gb > float(metadata["max_cuda_gb"]):
+        raise RuntimeError(
+            f"CUDA budget exceeded during {stage}: {peak_gb:.3f} GB"
+        )
+
+
 def _texts(metadata: dict[str, Any]) -> list[str]:
     values = metadata.get("texts")
     if isinstance(values, list) and values:
@@ -83,7 +104,18 @@ def _load_batches(
 
 
 def _target_names(model, metadata: dict[str, Any]) -> list[str]:
-    keywords = tuple(metadata.get("target_keywords", ["c_attn.weight", "c_proj.weight", "lm_head.weight"]))
+    default_keywords = [
+        "c_attn.weight",
+        "c_proj.weight",
+        "q_proj.weight",
+        "v_proj.weight",
+        "o_proj.weight",
+        "gate_proj.weight",
+        "up_proj.weight",
+        "down_proj.weight",
+        "lm_head.weight",
+    ]
+    keywords = tuple(metadata.get("target_keywords", default_keywords))
     candidates = [
         name
         for name, param in model.named_parameters()
@@ -144,13 +176,18 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     device = _device(torch, metadata)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    model = AutoModelForCausalLM.from_pretrained(str(source), local_files_only=True).to(device)
+    dtype = _dtype(torch, metadata)
+    load_kwargs = {"local_files_only": True}
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(source), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(source), local_files_only=True)
     load_cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
         if device.type == "cuda"
         else 0
     )
+    _check_cuda_budget(torch, device, metadata, "load")
     from saint.adapters.huggingface import matrices_from_state
 
     base_weights = matrices_from_state(dict(model.state_dict()), metadata)
@@ -204,12 +241,17 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         attention_mask=routing_mask,
         routing_method=routing_method,
         loss_fn=_loss,
+        score_limits={
+            name: (len(matrix), len(matrix[0]) if matrix else 0)
+            for name, matrix in base_weights.items()
+        },
     )
     routing_cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
         if device.type == "cuda"
         else 0
     )
+    _check_cuda_budget(torch, device, metadata, "routing")
     optimizer = torch.optim.AdamW(list(deltas.values()), lr=float(metadata.get("learning_rate", 1e-3)))
     initial_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), input_ids, attention_mask)
     steps = max(1, int(config.steps))
@@ -234,6 +276,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         if device.type == "cuda"
         else 0
     )
+    _check_cuda_budget(torch, device, metadata, "train")
     final_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), input_ids, attention_mask)
     validation_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), val_ids, val_mask)
     parameter_count = int(sum(delta.numel() for delta in deltas.values()))
@@ -256,6 +299,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "autograd": True,
             "real_forward": True,
             "device": str(device),
+            "model_dtype": str(dtype).replace("torch.", "") if dtype is not None else "default",
             "initial_loss": initial_loss,
             "perplexity": exp(min(final_loss, 20.0)),
             "validation_loss": validation_loss,

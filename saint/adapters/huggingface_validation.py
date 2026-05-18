@@ -13,6 +13,7 @@ from saint.adapters.huggingface_benchmark import (
     _gain_per_parameter,
     _lora_finetune,
     _loss,
+    _model_dtype,
     _require_deps,
 )
 from saint.config import RuntimeConfig
@@ -54,15 +55,17 @@ def _generate(
     prompt: str,
     device_name: str,
     merged_weights: dict[str, list[list[float]]] | None = None,
+    model_dtype: str | None = None,
 ) -> str:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    load_kwargs = {"local_files_only": True}
+    dtype = _model_dtype(torch, model_dtype)
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     if merged_weights is not None:
         state = model.state_dict()
@@ -95,13 +98,15 @@ def _evaluate_merged(
     validation_texts: list[str],
     device_name: str,
     max_length: int,
+    model_dtype: str | None = None,
 ) -> dict[str, float]:
     torch, _, AutoModelForCausalLM, AutoTokenizer = _require_deps()
     device = torch.device(device_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        local_files_only=True,
-    ).to(device)
+    load_kwargs = {"local_files_only": True}
+    dtype = _model_dtype(torch, model_dtype)
+    if dtype is not None:
+        load_kwargs["dtype"] = dtype
+    model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
     state = model.state_dict()
     with torch.no_grad():
@@ -140,6 +145,8 @@ def _saint_validation_row(
     routing_method: str = "gradient",
     routing_max_length: int | None = None,
     routing_batch_size: int | None = None,
+    model_dtype: str | None = None,
+    max_cuda_gb: float | None = None,
 ) -> dict[str, Any]:
     from saint.runtime import merge_runtime, resume_runtime, train_runtime
 
@@ -166,6 +173,8 @@ def _saint_validation_row(
             "routing_method": routing_method,
             "routing_max_length": routing_max_length or max_length,
             "routing_batch_size": routing_batch_size or batch_size,
+            "model_dtype": model_dtype,
+            "max_cuda_gb": max_cuda_gb,
         },
     )
     result = train_runtime(config)
@@ -185,6 +194,7 @@ def _saint_validation_row(
         validation_texts=validation_texts,
         device_name=result["metadata"]["device"],
         max_length=max_length,
+        model_dtype=model_dtype,
     )
     initial = result["metadata"]["initial_loss"]
     final = result["train_loss"]
@@ -317,7 +327,11 @@ def run_hf_phase13_validation(
     saint_weights = rows[0].pop("merged_weights")
     generation = {
         "prompt": "SAINT",
-        "base": _generate(model_path, prompt="SAINT", device_name=rows[0].get("device", device)),
+        "base": _generate(
+            model_path,
+            prompt="SAINT",
+            device_name=rows[0].get("device", device),
+        ),
         "saint_merged": _generate(
             model_path,
             prompt="SAINT",

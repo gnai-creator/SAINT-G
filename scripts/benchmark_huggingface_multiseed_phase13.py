@@ -34,6 +34,10 @@ def main() -> None:
     parser.add_argument("--saint-routing-method", default="gradient")
     parser.add_argument("--saint-routing-max-length", type=int, default=None)
     parser.add_argument("--saint-routing-batch-size", type=int, default=None)
+    parser.add_argument("--model-dtype", default=None)
+    parser.add_argument("--max-cuda-gb", type=float, default=None)
+    parser.add_argument("--skip-lora", action="store_true")
+    parser.add_argument("--skip-generation", action="store_true")
     args = parser.parse_args()
 
     result = run_hf_phase13_multiseed(
@@ -45,14 +49,17 @@ def main() -> None:
         steps=args.steps,
         saint_budgets=_ints(args.saint_budgets),
         saint_lrs=_floats(args.saint_lrs),
-        lora_ranks=_ints(args.lora_ranks),
-        lora_lrs=_floats(args.lora_lrs),
+        lora_ranks=() if args.skip_lora else _ints(args.lora_ranks),
+        lora_lrs=() if args.skip_lora else _floats(args.lora_lrs),
         device=args.device,
         batch_size=args.batch_size,
         saint_target_matrices=args.saint_target_matrices,
         saint_routing_method=args.saint_routing_method,
         saint_routing_max_length=args.saint_routing_max_length,
         saint_routing_batch_size=args.saint_routing_batch_size,
+        model_dtype=args.model_dtype,
+        max_cuda_gb=args.max_cuda_gb,
+        prompts=() if args.skip_generation else ("SAINT", "Checkpoint", "Training"),
     )
     out = Path(args.out)
     print(f"rows={len(result['rows'])}")
