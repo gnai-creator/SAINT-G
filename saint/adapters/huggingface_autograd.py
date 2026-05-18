@@ -102,7 +102,7 @@ def run_hf_autograd(config: RuntimeConfig) -> MiniTransformerResult:
         trainable,
         scale=config.delta_scale,
     )
-    optimizer = torch.optim.AdamW(list(params.values()), lr=float(metadata.get("learning_rate", 0.1)))
+    optimizer = torch.optim.AdamW(list(params.values()), lr=float(metadata.get("learning_rate", 0.001)))
     initial_loss = float(_loss(torch, params, targets, masks).detach().cpu().item())
     for _ in range(max(1, int(config.steps))):
         optimizer.zero_grad()

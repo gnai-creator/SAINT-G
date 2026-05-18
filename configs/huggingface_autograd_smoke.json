@@ -5,7 +5,7 @@
   "metadata": {
     "checkpoint_dtype": "float16",
     "checkpoint_shard_bytes": 128,
-    "learning_rate": 0.1,
+    "learning_rate": 0.001,
     "max_dim": 64,
     "max_matrices": 16,
     "model_name_or_path": "path/to/local/hf/model-or-state-dict.json"
