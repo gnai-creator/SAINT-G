@@ -192,10 +192,86 @@ Leitura:
 
 ## Proximo Marco
 
-Marco 5 deve melhorar a competicao contra baselines:
+## Marco 5 - LoRA e Modelo HF Real Local
 
-- adicionar baseline LoRA no forward real;
-- aumentar steps e dataset curto;
-- testar modelo pequeno real local, nao apenas GPT-2 minimo sintetico;
-- medir qualidade apos `resume`;
-- medir ganho por parametro treinavel.
+Status: **concluido**.
+
+Este marco melhora a comparacao contra baselines no mesmo forward real de
+`AutoModelForCausalLM`.
+
+### Entregas
+
+- baseline LoRA sem dependencia de `peft`;
+- aplicacao LoRA por `torch.func.functional_call`;
+- dataset curto ampliado para seis textos;
+- benchmark com mais steps no teste automatizado;
+- medicao de `resume_quality_delta` apos `resume`;
+- medicao de `gain_per_parameter`;
+- comparacao SAINT vs LoRA vs full fine-tuning;
+- suporte ao mesmo caminho `model_name_or_path` local para testar modelos HF
+  reais ja presentes na maquina.
+
+### Baselines
+
+```text
+hf_saint_forward_smoke
+hf_lora_rank_2
+hf_full_finetune
+```
+
+### Observacao
+
+O teste automatizado continua criando um GPT-2 minimo local sem rede. Isso
+garante reproducibilidade no CI e em ambientes sem modelos baixados. Para testar
+um modelo pequeno real local, use o mesmo benchmark apontando `model_path` para
+um diretorio Hugging Face ja existente na maquina.
+
+### Metricas Adicionadas
+
+- `resume_train_loss`;
+- `resume_quality_delta`;
+- `gain_per_parameter`;
+- `tokens_per_s`;
+- `cuda_peak_bytes`.
+
+### Resultado CUDA Smoke
+
+Configuracao:
+
+```text
+modelo: GPT-2 minimo local
+device: cuda
+seed: 31
+steps: 2
+parameter_budget SAINT: 8
+LoRA rank: 2
+```
+
+Resultado:
+
+| metodo | parametros | loss inicial | loss final | delta loss | ganho/param | tokens/s | pico CUDA |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| SAINT | 8 | 3.425533 | 3.425443 | -0.000090 | 0.00001124 | 647.89 | 18240000 |
+| LoRA r2 | 192 | 3.432518 | 3.432486 | -0.000032 | 0.00000017 | 9403.80 | 18340352 |
+| full | 4064 | 3.435688 | 3.386605 | -0.049083 | 0.00001208 | 6108.98 | 18395136 |
+
+O `resume_quality_delta` do SAINT foi `0.0`, confirmando que a qualidade
+registrada no checkpoint foi preservada apos `resume`.
+
+### Leitura Tecnica
+
+O Marco 5 ainda nao prova vantagem contra LoRA. Ele fecha a lacuna de
+instrumentacao: agora SAINT, LoRA e full fine-tuning rodam no mesmo forward real,
+com o mesmo dataset curto e metricas comparaveis de qualidade, throughput,
+memoria e eficiencia por parametro.
+
+## Proximo Marco
+
+Marco 6 deve tornar a comparacao mais realista:
+
+- rodar o benchmark em um modelo HF pequeno real local;
+- testar LoRA ranks `1`, `2`, `4` e `8`;
+- testar budgets SAINT diferentes;
+- salvar tabela de resultados em JSON/Markdown;
+- avaliar perplexity antes e depois do merge;
+- medir memoria CUDA em runs mais longas.

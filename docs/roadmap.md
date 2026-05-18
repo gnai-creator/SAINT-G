@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase 13 - Modelos Hugging Face Pequenos
 Fase anterior: Fase 12 concluida
-Proximo marco: Fase 13 Marco 5 - LoRA e Modelo HF Real Local
+Proximo marco: Fase 13 Marco 6 - Sweep HF Real Local
 ```
 
 Resumo do estado:
@@ -1575,15 +1575,57 @@ Resultado CUDA:
 | SAINT | 32 | 8 | 2.792639 | 2.792619 | -0.000021 | 5873.83 | 18230784 |
 | full | 32 | 3824 | 2.767291 | 2.769696 | 0.002405 | 4872.50 | 18239488 |
 
+### Marco 5 - LoRA e Modelo HF Real Local
+
+Status: **concluido**.
+
+Entregas:
+
+- baseline `hf_lora_rank_2` no forward real;
+- aplicacao LoRA por `torch.func.functional_call`, sem dependencia de `peft`;
+- dataset curto ampliado;
+- benchmark SAINT vs LoRA vs full fine-tuning;
+- medicao de qualidade apos `resume`;
+- medicao de ganho por parametro treinavel;
+- suporte ao mesmo caminho local para modelos HF reais pequenos.
+
+Metricas:
+
+```text
+resume_train_loss
+resume_quality_delta
+gain_per_parameter
+tokens_per_s
+cuda_peak_bytes
+```
+
+Observacao:
+
+```text
+o teste automatizado usa GPT-2 minimo local sem rede;
+um modelo HF real local pode ser testado apontando model_path para o diretorio
+do checkpoint ja existente na maquina.
+```
+
+Smoke CUDA:
+
+```text
+SAINT: params 8, loss 3.425533 -> 3.425443, ganho/param 0.00001124
+LoRA r2: params 192, loss 3.432518 -> 3.432486, ganho/param 0.00000017
+full: params 4064, loss 3.435688 -> 3.386605, ganho/param 0.00001208
+resume_quality_delta SAINT: 0.0
+```
+
 ### Proximo Marco
 
-Marco 5 - LoRA e Modelo HF Real Local:
+Marco 6 - Sweep HF Real Local:
 
-- adicionar baseline LoRA no forward real;
-- testar modelo pequeno real local;
-- aumentar dataset curto;
-- medir qualidade apos `resume`;
-- medir ganho por parametro treinavel.
+- rodar benchmark em modelo pequeno real local;
+- comparar LoRA ranks `1`, `2`, `4` e `8`;
+- variar budgets SAINT;
+- salvar tabela de resultados em JSON/Markdown;
+- avaliar perplexity antes e depois do merge;
+- medir memoria CUDA em runs mais longas.
 
 ## Fase 14 - Escala 3B
 

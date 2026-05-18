@@ -61,6 +61,21 @@ def _write_tiny_hf_model(path: Path) -> bool:
         "causal": 13,
         "language": 14,
         "model": 15,
+        "gradient": 16,
+        "maps": 17,
+        "choose": 18,
+        "useful": 19,
+        "weights": 20,
+        "codebooks": 21,
+        "share": 22,
+        "repeated": 23,
+        "update": 24,
+        "patterns": 25,
+        "resume": 26,
+        "keeps": 27,
+        "checkpoint": 28,
+        "quality": 29,
+        "stable": 30,
     }
     tokenizer = Tokenizer(WordLevel(vocab=vocab, unk_token="[UNK]"))
     tokenizer.pre_tokenizer = Whitespace()
@@ -219,9 +234,11 @@ class HuggingFacePhase13Tests(unittest.TestCase):
                 model_dir,
                 run_dir,
                 seeds=(31, 32),
-                steps=1,
+                steps=2,
                 parameter_budget=8,
                 device="cpu",
+                include_lora=True,
+                lora_rank=2,
             )
             rows = result["rows"]
             saint_rows = [
@@ -232,13 +249,22 @@ class HuggingFacePhase13Tests(unittest.TestCase):
                 row for row in rows
                 if row["method"] == "hf_full_finetune"
             ]
+            lora_rows = [
+                row for row in rows
+                if row["method"] == "hf_lora_rank_2"
+            ]
 
             self.assertEqual(result["seeds"], [31, 32])
             self.assertEqual(len(saint_rows), 2)
             self.assertEqual(len(full_rows), 2)
+            self.assertEqual(len(lora_rows), 2)
             self.assertTrue(all(row["checkpoint_merge"] for row in saint_rows))
+            self.assertTrue(
+                all(row["resume_quality_delta"] <= 1e-12 for row in saint_rows)
+            )
             self.assertTrue(all(row["tokens_per_s"] > 0.0 for row in rows))
             self.assertTrue(all("cuda_peak_bytes" in row for row in rows))
+            self.assertTrue(all("gain_per_parameter" in row for row in rows))
 
 
 if __name__ == "__main__":
