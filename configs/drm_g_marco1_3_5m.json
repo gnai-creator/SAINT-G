@@ -1,0 +1,19 @@
+{
+  "experiment_name": "drm_g_marco1_3_5m",
+  "output_dir": "runs/drm_g_marco1_3_5m",
+  "task": "drm_transformer",
+  "method": "drm_g_saint_phi_graft",
+  "seed": 31,
+  "steps": 2,
+  "parameter_budget": 64,
+  "vram_gb": 12.0,
+  "metadata": {
+    "baseline_config": "configs/baselines/small_3.5M.yaml",
+    "batch_size": 1,
+    "seq_len": 8,
+    "phi_rank": 8,
+    "graft_scale": 1.0,
+    "learning_rate": 0.05,
+    "device": "cpu"
+  }
+}

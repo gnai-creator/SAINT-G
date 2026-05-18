@@ -39,6 +39,19 @@ def _write_sparse_delta(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _write_graft_payload(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    write_json(path, payload)
+    return {
+        "path": path.name,
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+        "payload": "delta",
+        "format": "drm_graft_payload_json",
+        "target_module": payload.get("target_module"),
+        "trainable_parameters": payload.get("trainable_parameters", 0),
+    }
+
+
 def _expand_sparse_delta(
     payload: dict[str, Any],
     matrix_names: set[str] | None = None,
@@ -96,6 +109,13 @@ def require_sparse_delta_payload(
     }
 
 
+def require_graft_payload(checkpoint: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
+    entry = _file_entry(checkpoint, "delta")
+    if entry is None or entry.get("format") != "drm_graft_payload_json":
+        raise ValueError("checkpoint does not contain a DRM-G graft payload")
+    return read_json(Path(run_dir) / entry["path"])
+
+
 def read_json(path: str | Path) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -139,7 +159,9 @@ def write_checkpoint_bundle(run_dir: str | Path, payload: dict[str, Any]) -> dic
     files = []
     if delta_payload is not None:
         metadata = manifest.get("metadata", {})
-        if delta_payload.get("format") == "saint_sparse_delta":
+        if delta_payload.get("format") == "drm_graft_payload":
+            files.append(_write_graft_payload(target / "graft.drm-g.json", delta_payload))
+        elif delta_payload.get("format") == "saint_sparse_delta":
             files.append(_write_sparse_delta(target / "deltas.saintdelta.json", delta_payload))
         else:
             shard_bytes = metadata.get("checkpoint_shard_bytes")
@@ -195,6 +217,8 @@ def require_delta_payload(
         entry = _file_entry(checkpoint, "delta")
         if entry is None or run_dir is None:
             raise ValueError("checkpoint does not contain a delta payload")
+        if entry.get("format") == "drm_graft_payload_json":
+            return read_json(Path(run_dir) / entry["path"])
         if entry.get("format") == "saint_sparse_delta_json":
             payload = read_json(Path(run_dir) / entry["path"])
             return _expand_sparse_delta(payload, matrix_names)
@@ -274,6 +298,7 @@ __all__ = [
     "MANIFEST_FORMAT_VERSION",
     "migrate_checkpoint_manifest",
     "read_json",
+    "require_graft_payload",
     "require_delta_payload",
     "require_optimizer_state",
     "require_sparse_delta_payload",

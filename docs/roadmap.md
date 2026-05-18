@@ -29,7 +29,7 @@ recomposicao final
 ```text
 Fase atual: Fase DRM-G - DRM-SAINT-G
 Fase anterior: Fase 15 concluida com ressalvas
-Proximo marco: DRM-G Marco 1 - Enxerto progressivo em DRM pequeno
+Proximo marco: DRM-G Marco 3 - Consolidacao permanente do enxerto
 ```
 
 Resumo do estado:
@@ -52,7 +52,7 @@ Resumo do estado:
 | 13 | Modelos Hugging Face Pequenos | Concluida com ressalvas |
 | 14 | Escala 3B | Concluida com ressalvas |
 | 15 | Escala 14B | Concluida com ressalvas |
-| DRM-G | DRM-SAINT-G | Pendente |
+| DRM-G | DRM-SAINT-G | Em andamento |
 | 16+ | Modelos reais e escala maior | Pendente |
 
 ## Fase 0 - Fundacao Conceitual
@@ -3054,7 +3054,7 @@ validation_texts: 8
 
 ## Fase DRM-G - DRM-SAINT-G
 
-Status: **pendente**.
+Status: **em andamento**.
 
 ### Objetivo
 
@@ -3118,6 +3118,114 @@ modelo DRM pequeno
 
 Com isso, a Fase 16 pode escalar a ideia de enxerto para modelos maiores, em vez
 de tentar apenas adaptar pesos existentes.
+
+### Marco 1 - Enxerto Phi no DRM 3.5M
+
+Status: **concluido como smoke inicial**.
+
+Implementacao:
+
+- metodo runtime `drm_g_saint_phi_graft`;
+- adapter `saint.adapters.drm_grafting`;
+- config `configs/drm_g_marco1_3_5m.json`;
+- baseline externo `drm_transformer/configs/baselines/small_3.5M.yaml`;
+- nucleo DRM congelado;
+- enxerto `hidden' = hidden + hidden A Phi B` em `final_norm`;
+- 64 parametros treinaveis com `phi_rank=8`.
+
+Resultado:
+
+| metrica | valor |
+|---|---:|
+| parametros do DRM base | 3.468.581 |
+| parametros treinaveis | 64 |
+| base_loss | 10.825858 |
+| graft_loss | 10.822562 |
+| validation_gain | 0.003296 |
+| validation_gain_per_parameter | 5.1498e-05 |
+| dense_budget_loss | 10.793698 |
+
+Leitura:
+
+O primeiro ciclo DRM-G roda sobre a arquitetura real 3.5M, congela o nucleo e
+treina apenas `Phi`. O smoke passa porque melhora a loss da base congelada e
+gera checkpoint do runtime. Ainda nao vence a baseline densa de mesmo budget,
+entao o Marco 2 deve melhorar `A` e `B` com ativacao/gradiente e usar validacao
+menos sintetica.
+
+### Marco 2 - Enxerto com Ativacao/Gradiente
+
+Status: **concluido como smoke inicial**.
+
+Implementacao:
+
+- inicializacao de `A` e `B` por `activation`, `gradient` ou
+  `activation_gradient`;
+- `target_module` configuravel;
+- treino e validacao em batches separados;
+- config oficial `configs/drm_g_marco2_3_5m_gradient_block1.json`.
+
+Melhor ponto do smoke:
+
+```text
+target_module: blocks.1
+projection_init: gradient
+phi_rank: 8
+learning_rate: 0.005
+trainable_params: 64
+```
+
+Resultado:
+
+| metrica | valor |
+|---|---:|
+| base_loss validacao | 10.835747 |
+| graft_loss validacao | 10.834869 |
+| validation_gain | 0.000877 |
+| validation_gain_per_parameter | 1.3709e-05 |
+| dense_budget_gain | -0.000225 |
+
+Leitura:
+
+O Marco 2 passou como smoke porque o enxerto `A Phi B` inicializado por gradiente
+melhorou validacao em batch separado e venceu a baseline densa de mesmo budget
+no ponto `blocks.1`. Ainda precisa de mais seeds, mais exemplos e checkpoint
+recomponivel do enxerto antes de fechar a Fase DRM-G.
+
+### Marco 3 - Checkpoint Recomponivel do Enxerto
+
+Status: **em andamento, recomposicao validada**.
+
+Implementacao:
+
+- payload real `graft.drm-g.json` com `A`, `Phi`, `B`, `target_module` e `scale`;
+- formato `drm_graft_payload_json`;
+- metodo runtime `drm_g_saint_phi_eval`;
+- config `configs/drm_g_marco3_eval_payload.json`;
+- sweep `scripts/benchmark_drm_g_marco3.py`.
+
+Resultado de recomposicao:
+
+| metrica | valor |
+|---|---:|
+| base_loss | 10.835747 |
+| graft_loss recomposto | 10.834869 |
+| validation_gain | 0.000877 |
+| gain/param | 1.3709e-05 |
+
+Melhor ponto do sweep multiseed curto:
+
+| seed | alvo | init | validation_gain | dense_gain |
+|---:|---|---|---:|---:|
+| 32 | `final_norm` | `activation` | 0.001096 | -0.000362 |
+| 32 | `blocks.1` | `gradient` | 0.000933 | -0.000139 |
+| 31 | `blocks.2` | `gradient` | 0.000813 | 0.000028 |
+
+Leitura:
+
+O checkpoint do enxerto ja e recomponivel: o eval carregando `A/Phi/B` reproduz
+o ganho do treino. O Marco 3 ainda nao esta fechado porque falta consolidar o
+enxerto permanentemente no estado do DRM, sem depender apenas de hook.
 
 ## Fase 16 - Escala 70B
 

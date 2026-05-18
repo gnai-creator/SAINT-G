@@ -1,0 +1,22 @@
+{
+  "experiment_name": "drm_g_marco2_3_5m_gradient_block1",
+  "output_dir": "runs/drm_g_marco2_3_5m_gradient_block1",
+  "task": "drm_transformer",
+  "method": "drm_g_saint_phi_graft",
+  "seed": 31,
+  "steps": 2,
+  "parameter_budget": 64,
+  "vram_gb": 12.0,
+  "metadata": {
+    "baseline_config": "configs/baselines/small_3.5M.yaml",
+    "batch_size": 1,
+    "seq_len": 8,
+    "validation_seed": 1991,
+    "phi_rank": 8,
+    "projection_init": "gradient",
+    "target_module": "blocks.1",
+    "graft_scale": 1.0,
+    "learning_rate": 0.005,
+    "device": "cpu"
+  }
+}

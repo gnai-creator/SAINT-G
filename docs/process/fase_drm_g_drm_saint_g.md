@@ -1,6 +1,6 @@
 # Fase DRM-G - DRM-SAINT-G
 
-Status: **pendente**.
+Status: **em andamento**.
 
 ## Objetivo
 
@@ -58,18 +58,192 @@ onde:
 
 ### Marco 1 - Enxerto Simulado
 
+Status: **concluido como smoke inicial**.
+
 Criar um experimento pequeno, dependency-free ou PyTorch simples, em que um DRM
 reduzido recebe um modulo novo e treina apenas o enxerto.
 
+Implementacao:
+
+- criado adapter `saint.adapters.drm_grafting`;
+- criado metodo runtime `drm_g_saint_phi_graft`;
+- criado config `configs/drm_g_marco1_3_5m.json`;
+- usado baseline canonico `drm_transformer/configs/baselines/small_3.5M.yaml`;
+- nucleo DRM congelado;
+- enxerto aplicado por hook em `final_norm`;
+- atualizacao treinavel:
+
+```text
+hidden' = hidden + hidden A Phi B
+```
+
+Resultado do smoke:
+
+| metrica | valor |
+|---|---:|
+| parametros do DRM base | 3.468.581 |
+| parametros treinaveis do enxerto | 64 |
+| phi_rank | 8 |
+| base_loss | 10.825858 |
+| graft_loss | 10.822562 |
+| validation_gain | 0.003296 |
+| validation_gain_per_parameter | 5.1498e-05 |
+| dense_budget_loss | 10.793698 |
+| dense_budget_gain_per_parameter | 5.0249e-04 |
+
+Leitura:
+
+DRM-SAINT-G ja executa um ciclo minimo de enxerto sobre a arquitetura 3.5M real:
+carrega config canonica, congela o nucleo, treina apenas `Phi` e salva
+checkpoint do runtime.
+
+O resultado ainda nao vence a baseline densa com o mesmo numero de parametros.
+Isso e esperado no primeiro smoke, porque `A` e `B` ainda sao projecoes
+aleatorias fixas. O proximo marco deve tornar o enxerto mais realista antes de
+consolidar:
+
+- inicializar `A` e `B` por ativacao/gradiente;
+- medir validacao em corpus real ou fixture tokenizada;
+- salvar payload real do enxerto, nao apenas metricas;
+- comparar contra treino direto de um modulo novo equivalente;
+- testar enxerto em pontos internos do bloco, nao apenas `final_norm`.
+
 ### Marco 2 - Enxerto Real no DRM Transformer
+
+Status: **concluido como smoke inicial**.
 
 Integrar o mecanismo ao `drm_transformer`, congelando o nucleo e treinando um
 enxerto em uma ou mais matrizes reais.
 
+Mudancas:
+
+- `A` e `B` podem ser inicializados por:
+  - `random`;
+  - `activation`;
+  - `gradient`;
+  - `activation_gradient`;
+- o ponto de enxerto passou a ser configuravel por `target_module`;
+- treino e validacao usam batches separados por `data_seed` e `validation_seed`;
+- o Marco 2 usa o baseline real `small_3.5M.yaml`.
+
+Config oficial:
+
+```text
+config: configs/drm_g_marco2_3_5m_gradient_block1.json
+target_module: blocks.1
+projection_init: gradient
+phi_rank: 8
+trainable_params: 64
+learning_rate: 0.005
+steps: 2
+```
+
+Resultado oficial:
+
+| metrica | valor |
+|---|---:|
+| parametros do DRM base | 3.468.581 |
+| parametros treinaveis | 64 |
+| base_loss validacao | 10.835747 |
+| graft_loss validacao | 10.834869 |
+| validation_gain | 0.000877 |
+| validation_gain_per_parameter | 1.3709e-05 |
+| dense_budget_loss | 10.835972 |
+| dense_budget_gain | -0.000225 |
+
+Leitura:
+
+O Marco 2 melhora o Marco 1 em realismo: o enxerto nao depende mais apenas de
+projecoes aleatorias e a validacao ja usa outro batch. A melhor configuracao do
+smoke foi `blocks.1` com inicializacao por gradiente. Nesse ponto,
+DRM-SAINT-G melhorou a validacao enquanto a baseline densa de mesmo budget
+piorou.
+
+Varredura curta:
+
+| alvo | inicializacao | validation_gain | leitura |
+|---|---|---:|---|
+| `blocks.0` | `activation` | 0.001176 | melhor ganho bruto, mas dense tambem melhorou |
+| `blocks.1` | `gradient` | 0.000877 | melhor ponto contra dense no mesmo budget |
+| `blocks.1` | `activation` | 0.000472 | positivo |
+| `blocks.2` | `activation_gradient` | 0.000427 | positivo |
+| `final_norm` | `random` | -0.000081 | quase neutro |
+| `final_norm` | `activation_gradient` | -0.001027 | piorou |
+
+Proximo passo:
+
+- salvar payload real do enxerto (`A`, `Phi`, `B`) no checkpoint;
+- aplicar merge/eval recompondo o enxerto;
+- testar mais seeds e mais exemplos de validacao;
+- comparar contra baseline densa em multiplos pontos internos;
+- testar `blocks.0` com `activation` como candidato de maior ganho bruto.
+
 ### Marco 3 - Consolidacao
+
+Status: **em andamento, checkpoint recomponivel validado**.
 
 Testar se o enxerto pode ser consolidado no checkpoint sem perder a melhoria de
 validacao.
+
+Mudancas implementadas:
+
+- checkpoint agora salva payload real do enxerto em `graft.drm-g.json`;
+- payload inclui `A`, `Phi`, `B`, `target_module`, `scale` e metadados;
+- adicionado formato `drm_graft_payload_json`;
+- adicionado metodo runtime `drm_g_saint_phi_eval`;
+- eval recomposto carrega o payload do checkpoint e reaplica o enxerto via hook;
+- adicionado sweep `scripts/benchmark_drm_g_marco3.py`;
+- sweep testa seeds `31`, `32`, `33`, batch de validacao maior e pontos internos:
+  - `blocks.0`;
+  - `blocks.1`;
+  - `blocks.2`;
+  - `final_norm`.
+
+Validacao de recomposicao:
+
+```text
+train checkpoint: runs/drm_g_marco2_3_5m_gradient_block1
+eval config: configs/drm_g_marco3_eval_payload.json
+payload: graft.drm-g.json
+target_module: blocks.1
+projection_init: gradient
+```
+
+Resultado recomposto:
+
+| metrica | valor |
+|---|---:|
+| base_loss | 10.835747 |
+| graft_loss recomposto | 10.834869 |
+| validation_gain | 0.000877 |
+| validation_gain_per_parameter | 1.3709e-05 |
+
+O eval recomposto reproduz a loss do checkpoint treinado, portanto `A`, `Phi` e
+`B` ja sao suficientes para reativar o enxerto.
+
+Resultado do sweep:
+
+| seed | alvo | inicializacao | validation_gain | dense_gain | vence dense |
+|---:|---|---|---:|---:|---|
+| 32 | `final_norm` | `activation` | 0.001096 | -0.000362 | sim |
+| 32 | `blocks.1` | `gradient` | 0.000933 | -0.000139 | sim |
+| 31 | `blocks.2` | `gradient` | 0.000813 | 0.000028 | sim |
+| 31 | `final_norm` | `activation` | 0.000638 | -0.000343 | sim |
+| 32 | `final_norm` | `gradient` | 0.000597 | -0.000362 | sim |
+
+Leitura:
+
+O Marco 3 confirma que o enxerto e recomponivel e que o melhor ponto muda com
+seed/batch. `blocks.0 + activation`, que parecia forte no Marco 2, nao foi o
+melhor no sweep multiseed; `final_norm + activation` e `blocks.1 + gradient`
+ficaram mais fortes neste teste.
+
+Pendencias para fechar Marco 3:
+
+- fazer merge/consolidacao permanente no estado do DRM, nao apenas hook;
+- avaliar o enxerto recomposto em dados reais tokenizados;
+- salvar estado de otimizador real do enxerto;
+- adicionar criterio automatico de aprovar/descartar enxerto.
 
 ### Marco 4 - Crescimento Progressivo
 
