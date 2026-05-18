@@ -1,266 +1,647 @@
-# SAINT - Arquitetura
+# Arquitetura SAINT
 
-SAINT significa **Simple AI Node Training**. O objetivo do projeto e criar uma camada simples para treinar, adaptar e experimentar modelos de IA em computadores comuns, respeitando um limite explicito de VRAM definido pelo usuario.
+SAINT significa **Simple AI Node Training**.
 
-O foco inicial nao e prometer treino completo de modelos gigantes em uma unica GPU domestica. Um modelo de 20B, 70B ou 640B parametros nao cabe integralmente em 12GB ou 24GB de VRAM quando consideramos pesos, gradientes, estados do otimizador e ativacoes. O caminho viavel e transformar SAINT em um sistema de **treino parcial, fine-tuning, adapters, LoRA, blocos congelados/descongelados, offload e execucao em micro-blocos**.
+Este documento descreve a arquitetura baseada no paradigma SAINT:
 
-## Objetivos
-
-1. Permitir que o usuario informe quanta VRAM deseja usar.
-2. Dividir o treino em unidades pequenas e controlaveis.
-3. Suportar modelos tipo LLM e, no futuro, world models.
-4. Suportar treino parcial de modelos grandes usando tecnicas de baixo consumo.
-5. Expor uma CLI simples para experimentos locais.
-6. Usar o `drm_transformer` como primeiro exemplo de modelo customizado.
-
-## Nao Objetivos
-
-1. Treinar todos os parametros de um modelo 20B, 70B ou 640B do zero em uma RTX 3060/4090.
-2. Esconder limites fisicos de memoria, largura de banda e tempo.
-3. Criar um framework distribuido completo antes de validar o fluxo local.
-4. Substituir PyTorch, Hugging Face, DeepSpeed ou FSDP; SAINT deve orquestrar e simplificar.
-
-## Principio Central
-
-O usuario declara um orcamento:
-
-```bash
-SAINT train --model drm_transformer --data ./data --vram-gb 12
+```text
+SAINT = sparse multi-scale block-codebook delta training
 ```
 
-SAINT converte esse orcamento em uma estrategia:
+Em portugues:
 
-- tamanho de micro-batch;
-- comprimento de sequencia;
-- precision (`fp32`, `fp16`, `bf16`, quantizado);
-- gradient accumulation;
-- gradient checkpointing;
-- quais parametros ficam treinaveis;
-- quais blocos ficam em GPU, CPU ou disco;
-- frequencia de checkpoint;
-- estimativa de memoria antes do treino.
+```text
+treino de deltas esparsos por dicionario multi-escala de blocos
+```
 
-## Camadas da Arquitetura
+O objetivo do SAINT nao e treinar todos os parametros de uma LLM gigante ao mesmo tempo. O objetivo e adaptar ou treinar parcialmente modelos grandes usando:
 
-### 1. CLI
+- loss global;
+- atualizacao local;
+- deltas esparsos;
+- codebooks multi-escala;
+- roteamento de blocos;
+- orcamento explicito de VRAM;
+- recomposicao final.
 
-Entrada principal do usuario.
+## 1. Principio Arquitetural
 
-Responsabilidades:
+O treino tradicional atualiza muitos parametros simultaneamente.
 
-- ler argumentos;
-- carregar arquivo de configuracao opcional;
-- validar limites de memoria;
-- iniciar treino, avaliacao ou estimativa;
-- imprimir plano de execucao antes de iniciar.
+SAINT muda o eixo do problema:
+
+```text
+modelo base congelado ou parcialmente congelado
+  + deltas pequenos
+  + blocos reutilizaveis
+  + scheduler de partes
+  + loss global
+```
+
+O peso efetivo de uma matriz e:
+
+```text
+W_eff = W_base + DeltaW
+```
+
+Onde:
+
+- `W_base` e a matriz original;
+- `DeltaW` e um delta esparso, reconstruido por blocos;
+- `W_eff` e a matriz usada no forward.
+
+O modelo inteiro participa do forward e da loss. Mas apenas as partes escolhidas pelo SAINT recebem gradiente.
+
+```text
+loss global
+gradiente local
+update parcial
+revisao e consolidacao
+```
+
+## 2. Visao Geral dos Modulos
+
+Arquitetura logica:
+
+```text
+CLI
+  -> Config Loader
+  -> Model Adapter
+  -> Matrix Inspector
+  -> Block Partition Engine
+  -> Codebook Manager
+  -> Sensitivity Analyzer
+  -> Block Router
+  -> Memory Planner
+  -> SAINT Trainer
+  -> Checkpoint Manager
+  -> Merger / Recomposer
+  -> Evaluator
+```
+
+Estrutura prevista:
+
+```text
+saint/
+  cli/
+  config/
+  adapters/
+  matrices/
+  blocks/
+  codebooks/
+  routing/
+  sensitivity/
+  memory/
+  training/
+  checkpoints/
+  evaluation/
+  merge/
+```
+
+## 3. CLI
+
+A CLI e a entrada do usuario.
 
 Comandos previstos:
 
 ```bash
-SAINT estimate --model ./model --vram-gb 12
-SAINT train --config configs/local_12gb.yaml
-SAINT resume --checkpoint runs/exp001/latest
-SAINT inspect --checkpoint runs/exp001/latest
+saint inspect --model ./model
+saint reconstruct --matrix ./weights.pt
+saint estimate --model ./model --vram-gb 12
+saint train --config configs/exp.yaml
+saint resume --run runs/exp001
+saint merge --run runs/exp001 --out merged/
+saint compare --run runs/saint001 --baseline runs/lora001
 ```
-
-### 2. Configuracao
-
-Representa o contrato entre usuario e runtime.
-
-Campos principais:
-
-- `model_type`: `drm_transformer`, `hf_causal_lm`, `world_model`;
-- `model_path`: caminho local ou identificador;
-- `data_path`: caminho dos dados;
-- `vram_gb`: limite de VRAM desejado;
-- `train_mode`: `full_small`, `lora`, `adapter`, `blockwise`, `head_only`;
-- `precision`: `auto`, `fp32`, `fp16`, `bf16`, `int8`, `int4`;
-- `seq_len`;
-- `micro_batch_size`;
-- `gradient_accumulation_steps`;
-- `checkpointing`;
-- `offload`: `none`, `cpu`, `nvme`;
-- `target_modules`: lista de blocos ou modulos treinaveis.
-
-### 3. Memory Planner
-
-Componente mais importante do SAINT.
 
 Responsabilidades:
 
-- estimar memoria dos pesos;
-- estimar memoria dos gradientes;
-- estimar estados do otimizador;
-- estimar ativacoes por batch e sequencia;
-- calcular margem de seguranca;
-- rejeitar planos impossiveis;
-- sugerir plano alternativo.
+- carregar configuracao;
+- validar argumentos;
+- iniciar estimativas;
+- iniciar treino;
+- retomar runs;
+- fundir deltas;
+- comparar experimentos.
+
+## 4. Configuracao
+
+A configuracao define o contrato do experimento.
+
+Campos principais:
+
+```yaml
+project: saint-exp
+model:
+  type: hf_causal_lm
+  path: ./models/tiny
+  base_precision: int4
+  train_base: false
+
+data:
+  path: ./data/train.txt
+  seq_len: 1024
+
+memory:
+  vram_gb: 12
+  safety_margin_gb: 0.8
+  offload: cpu
+
+saint:
+  delta_mode: block_codebook
+  block_sizes: [16, 8, 4, 2]
+  sparsity_target: 0.01
+  codebook_size: 256
+  router: heuristic
+  sensitivity: grad_norm
+  consolidation_interval: 1000
+
+train:
+  micro_batch_size: 1
+  gradient_accumulation_steps: 32
+  learning_rate: 0.0002
+  max_steps: 10000
+```
+
+## 5. Model Adapter
+
+O Model Adapter padroniza modelos diferentes.
+
+Responsabilidades:
+
+- carregar modelo;
+- listar camadas;
+- listar matrizes treinaveis;
+- expor forward;
+- congelar parametros base;
+- aplicar deltas SAINT;
+- remover deltas;
+- salvar/carregar estado.
+
+Interface conceitual:
+
+```text
+load_model()
+list_layers()
+list_matrices()
+freeze_base()
+attach_delta(matrix_id, delta_module)
+forward(batch)
+state_dict_trainable()
+```
+
+Adapters iniciais:
+
+- `DRMTransformerAdapter`;
+- `HFCausalLMAdapter`;
+- `LinearToyAdapter`;
+- `MiniTransformerAdapter`.
+
+## 6. Matrix Inspector
+
+O Matrix Inspector encontra matrizes dentro do modelo.
+
+Ele classifica:
+
+- embeddings;
+- attention query;
+- attention key;
+- attention value;
+- attention output;
+- MLP up;
+- MLP gate;
+- MLP down;
+- lm head;
+- outras matrizes.
+
+Para cada matriz, registra:
+
+```text
+id
+nome
+camada
+tipo
+shape
+dtype
+device
+numero de parametros
+estimativa de custo
+```
+
+Exemplo:
+
+```text
+layer.12.attention.wq
+shape: 4096 x 4096
+tipo: attention_q
+parametros: 16.7M
+```
+
+## 7. Block Partition Engine
+
+Este modulo divide matrizes em regioes e blocos.
+
+Suporta:
+
+- blocos `2x2`;
+- blocos `3x3`;
+- blocos `4x4`;
+- blocos `5x5`;
+- blocos `6x6`;
+- blocos `8x8`;
+- blocos `16x16`;
+- blocos maiores para busca inicial;
+- padding;
+- blocos de borda;
+- particionamento hierarquico.
+
+Fluxo:
+
+```text
+W
+  -> regioes grandes
+  -> sub-regioes
+  -> blocos
+  -> assinaturas
+  -> grupos
+```
+
+A divisao nao e o ganho por si so. O ganho vem de:
+
+- esparsidade;
+- compartilhamento;
+- codebook;
+- roteamento;
+- treino local.
+
+## 8. Assinaturas de Blocos
+
+Cada bloco pode receber uma assinatura.
+
+Assinaturas possiveis:
+
+- valores quantizados;
+- norma;
+- traco;
+- determinante;
+- autovalores;
+- estatisticas simples;
+- hash aproximado;
+- cluster;
+- id de codebook.
+
+Uso:
+
+- encontrar blocos iguais;
+- encontrar blocos parecidos;
+- agrupar calculos;
+- inicializar codebooks;
+- medir reutilizacao.
+
+Observacao: determinante nao reconstrui o bloco sozinho. Ele e apenas uma estatistica possivel.
+
+## 9. Codebook Manager
+
+O Codebook Manager administra dicionarios de blocos.
+
+SAINT usa codebooks multi-escala:
+
+```text
+codebook_2x2
+codebook_3x3
+codebook_4x4
+codebook_5x5
+codebook_6x6
+codebook_8x8
+codebook_16x16
+```
+
+Cada entrada e um prototipo treinavel ou fixo.
+
+Representacao simples:
+
+```text
+Dij = escala_ij * codebook_k[id_ij]
+```
+
+Representacao por mistura:
+
+```text
+Dij = alpha1 * codebook_k[a]
+    + alpha2 * codebook_k[b]
+    + alpha3 * codebook_k[c]
+```
+
+Representacao multi-escala:
+
+```text
+D_region = bloco_16x16
+         + refinamento_8x8
+         + refinamento_4x4
+         + refinamento_2x2
+```
+
+Responsabilidades:
+
+- criar codebooks;
+- inicializar por clustering;
+- inicializar aleatoriamente;
+- agrupar blocos similares;
+- manter indices;
+- manter escalas;
+- aplicar prototipos;
+- acumular gradientes compartilhados;
+- salvar e carregar codebooks.
+
+## 10. Delta Representation
+
+O delta SAINT e a estrutura treinavel anexada a uma matriz base.
+
+Pode conter:
+
+- mascara esparsa;
+- ids de codebook;
+- escalas por bloco;
+- misturas;
+- refinamentos multi-escala;
+- blocos livres em regioes criticas;
+- LoRA auxiliar opcional.
+
+Forma conceitual:
+
+```text
+DeltaW = M * reconstruct(codebooks, ids, scales, refinements)
+```
+
+Onde:
+
+- `M` e a mascara esparsa;
+- `codebooks` contem prototipos;
+- `ids` apontam para prototipos;
+- `scales` ajustam intensidade;
+- `refinements` adicionam detalhes locais.
+
+## 11. Sensitivity Analyzer
+
+O Sensitivity Analyzer mede quais partes importam.
+
+Entradas:
+
+- modelo;
+- batches de amostra;
+- loss;
+- gradientes;
+- ativacoes;
+- matriz inspecionada;
+- estado atual dos deltas.
+
+Metricas:
+
+- norma do gradiente;
+- gradiente vezes peso;
+- impacto de mascaramento;
+- estimativa Fisher;
+- magnitude de ativacao;
+- erro de reconstrucao;
+- frequencia de padrao;
+- ganho por byte.
+
+Saida:
+
+```text
+ranking de camadas
+ranking de matrizes
+ranking de regioes
+ranking de blocos
+ranking de codebook entries
+```
+
+O objetivo e evitar treinar blocos irrelevantes.
+
+## 12. Block Router
+
+O Block Router decide como cada regiao sera representada.
+
+Opcoes:
+
+```text
+congelar
+usar bloco 16x16
+usar bloco 8x8
+usar bloco 4x4
+usar bloco 2x2
+usar mistura multi-escala
+usar delta livre
+usar LoRA auxiliar
+```
+
+Politica inicial:
+
+```text
+erro baixo + baixa sensibilidade  -> congelar ou bloco grande
+erro alto + baixa sensibilidade   -> bloco medio
+erro baixo + alta sensibilidade   -> bloco pequeno
+erro alto + alta sensibilidade    -> bloco pequeno + LoRA/delta livre
+```
+
+O roteador deve respeitar:
+
+- orcamento de VRAM;
+- orcamento por camada;
+- limite de parametros treinaveis;
+- limite de codebook entries;
+- custo de offload;
+- estabilidade do treino.
+
+## 13. Memory Planner
+
+O Memory Planner transforma `--vram-gb` em plano executavel.
+
+Ele estima:
+
+- pesos base em GPU;
+- pesos base em CPU;
+- deltas treinaveis;
+- gradientes dos deltas;
+- estados do otimizador;
+- ativacoes;
+- caches;
+- buffers temporarios;
+- margem de seguranca.
+
+Tambem decide:
+
+- micro-batch;
+- seq_len;
+- gradient accumulation;
+- precision;
+- offload;
+- numero maximo de blocos ativos;
+- tamanho maximo de codebook ativo;
+- quantas matrizes podem ser treinadas por fase.
 
 Exemplo de saida:
 
 ```text
 VRAM alvo: 12.0 GB
-Modelo: 7.0B parametros
-Modo: LoRA
-Precision: int4 base + bf16 adapters
+Margem: 0.8 GB
+Modelo base: int4 + offload CPU
+Parametros treinaveis: 18.2M
+Blocos ativos: 0.7%
+Codebook entries ativas: 512
 Micro-batch: 1
 Seq len: 1024
-Gradient accumulation: 32
-Gradient checkpointing: on
-Offload: cpu
-Status: viavel com margem estimada de 1.4 GB
+Status: viavel
 ```
 
-### 4. Model Adapter
+## 14. Orcamento por Camada
 
-Camada que padroniza modelos diferentes.
+SAINT nao distribui memoria igualmente.
 
-Interface esperada:
-
-- carregar modelo;
-- listar blocos;
-- congelar parametros;
-- ativar parametros selecionados;
-- inserir LoRA/adapters;
-- mover blocos entre devices;
-- executar forward;
-- salvar pesos treinaveis;
-- carregar checkpoint parcial.
-
-Primeiros adapters:
-
-1. `DRMTransformerAdapter`
-2. `HFCausalLMAdapter`
-3. `WorldModelAdapter` futuro
-
-### 5. Training Modes
-
-SAINT deve suportar varios modos de treino.
-
-#### `full_small`
-
-Treina todos os parametros.
-
-Uso:
-
-- modelos pequenos;
-- testes;
-- validacao do pipeline.
-
-#### `head_only`
-
-Treina apenas cabeca de saida ou pequenos modulos finais.
-
-Uso:
-
-- classificacao;
-- adaptacao barata;
-- smoke tests.
-
-#### `lora`
-
-Congela o modelo base e treina matrizes LoRA.
-
-Uso:
-
-- principal modo para modelos grandes;
-- ideal para GPUs domesticas.
-
-#### `adapter`
-
-Insere pequenos modulos treinaveis entre blocos.
-
-Uso:
-
-- adaptacao persistente;
-- experimentos com world models.
-
-#### `blockwise`
-
-Treina um subconjunto de blocos por vez.
-
-Uso:
-
-- pesquisa;
-- modelos que nao cabem com todos os blocos ativos;
-- ajuste progressivo.
-
-Limitacao importante: treino por blocos nao e equivalente a treino full end-to-end. Ele pode funcionar como aproximacao, adaptacao ou pretreino faseado, mas deve ser medido empiricamente.
-
-### 6. Block Scheduler
-
-Controla quais partes do modelo estao ativas em cada etapa.
+Cada camada e tipo de matriz recebe um orcamento.
 
 Exemplo:
 
 ```text
-fase 1: embeddings + blocos 0-1
-fase 2: blocos 2-3
-fase 3: blocos 4-5
-fase 4: lm_head
-fase 5: adapters globais
+layer.0: 2%
+layer.8: 6%
+layer.16: 10%
+layer.24: 4%
+layer.final: 8%
 ```
 
-Responsabilidades:
+Por tipo:
 
-- selecionar blocos treinaveis;
-- congelar o restante;
-- mover blocos para GPU sob demanda;
-- aplicar accumulation;
-- sincronizar checkpoints parciais;
-- evitar esquecimento catastrofico com fases de revisao.
+```text
+attention.Wq: 10%
+attention.Wk: 5%
+attention.Wv: 15%
+attention.Wo: 10%
+mlp.up: 25%
+mlp.gate: 20%
+mlp.down: 15%
+```
 
-### 7. Data Pipeline
+Esse orcamento pode ser fixo ou adaptativo.
 
-Pipeline simples e streaming.
+## 15. SAINT Trainer
 
-Responsabilidades:
+O trainer executa:
 
-- ler texto, tokens ou shards;
-- evitar carregar dataset inteiro em RAM;
-- gerar janelas de treino;
-- suportar shuffle controlado;
-- salvar metadados de tokenizacao;
-- permitir datasets pequenos para testes.
-
-Formatos iniciais:
-
-- `.txt`;
-- `.jsonl`;
-- `.npy`;
-- `.bin`;
-- shards tokenizados.
-
-### 8. Trainer
-
-Executa o loop de treino.
+```text
+forward do modelo inteiro
+loss global
+backward
+gradiente apenas nos deltas ativos
+optimizer step local
+checkpoint parcial
+```
 
 Responsabilidades:
 
 - mixed precision;
 - gradient accumulation;
-- clipping;
-- checkpointing;
+- gradient clipping;
 - logging;
+- consolidacao;
 - avaliacao periodica;
-- resume;
-- metricas de tokens/s, loss e memoria.
+- OOM recovery;
+- resume.
 
-O trainer nao deve conhecer detalhes internos de cada modelo. Ele conversa com `ModelAdapter`.
+O trainer nao deve conhecer detalhes de cada arquitetura. Ele usa o `ModelAdapter`.
 
-### 9. Checkpoint Manager
+## 16. Scheduler de Fases
 
-Responsabilidades:
+O Scheduler define a ordem do treino.
 
-- salvar checkpoint completo para modelos pequenos;
-- salvar apenas adapters/LoRA quando aplicavel;
-- salvar estado do scheduler;
-- salvar estado do otimizador;
-- salvar configuracao efetiva;
-- salvar historico de treino;
-- permitir resume exato.
+Estrategias:
 
-Estrutura prevista:
+- sequencial por camada;
+- reversa;
+- por sensibilidade;
+- por ganho por byte;
+- por erro de reconstrucao;
+- por reuso de padrao;
+- curriculum por tamanho;
+- aleatoria controlada.
+
+Exemplo:
+
+```text
+fase 1: lm_head e ultimas camadas
+fase 2: MLPs mais sensiveis
+fase 3: attention.Wv com alto ganho por byte
+fase 4: refinamento 4x4
+fase 5: refinamento 2x2 em regioes criticas
+fase 6: consolidacao
+```
+
+## 17. Consolidacao
+
+Treinar partes separadas pode gerar conflito.
+
+Consolidacao e uma fase curta onde SAINT revisita partes importantes com os deltas ja ativos.
+
+Objetivos:
+
+- reduzir conflito entre deltas;
+- recuperar qualidade global;
+- estabilizar recomposicao;
+- medir degradacao;
+- recalcular sensibilidade.
+
+Exemplo:
+
+```text
+treina grupo A
+treina grupo B
+treina grupo C
+consolidacao A+B+C
+```
+
+## 18. Cache de Grupos
+
+Se varios blocos compartilham o mesmo prototipo, SAINT pode agrupar calculos.
+
+Exemplo:
+
+```text
+grupo G7:
+  codebook_id = 7
+  posicoes = [D12, D98, D301]
+```
+
+Runtime:
+
+```text
+calcular prototipo uma vez
+aplicar em varias posicoes
+acumular gradientes no mesmo prototipo
+```
+
+Isso so ajuda se houver repeticao real ou repeticao induzida pelo codebook.
+
+## 19. Checkpoint Manager
+
+Checkpoint SAINT nao precisa salvar o modelo inteiro.
+
+Pode salvar:
+
+- config efetiva;
+- plano de memoria;
+- mapa de sensibilidade;
+- roteador;
+- codebooks;
+- ids de blocos;
+- escalas;
+- mascaras;
+- deltas livres;
+- LoRA auxiliar;
+- estado do otimizador ativo;
+- scheduler;
+- logs.
+
+Estrutura:
 
 ```text
 runs/
@@ -268,169 +649,256 @@ runs/
     config.yaml
     plan.json
     logs.jsonl
+    sensitivity.json
+    router.json
+    codebooks/
     checkpoints/
       step_000100/
         trainable.pt
         optimizer.pt
         scheduler.json
-      latest/
+    merged/
 ```
 
-### 10. Observabilidade
+## 20. Merger / Recomposer
 
-SAINT deve mostrar ao usuario o que esta acontecendo.
+O Merger transforma deltas em modelo utilizavel.
+
+Modos:
+
+### Composto
+
+Mantem modelo base + deltas.
+
+```text
+W_eff = W_base + reconstruct(DeltaW)
+```
+
+Vantagens:
+
+- checkpoint pequeno;
+- reversivel;
+- permite trocar deltas.
+
+### Fundido
+
+Materializa pesos finais.
+
+```text
+W_final = W_base + DeltaW
+```
+
+Vantagens:
+
+- inferencia mais simples;
+- nao precisa reconstruir em tempo real.
+
+Desvantagens:
+
+- checkpoint maior;
+- perde modularidade.
+
+## 21. Evaluator
+
+O Evaluator compara SAINT contra baselines.
+
+Baselines:
+
+- full fine-tuning em modelo pequeno;
+- LoRA;
+- QLoRA;
+- adapters;
+- head-only;
+- bloco sem codebook;
+- codebook tamanho unico;
+- codebook multi-escala.
 
 Metricas:
 
-- VRAM alocada;
-- VRAM reservada;
-- RAM usada;
-- tokens por segundo;
 - loss;
-- grad norm;
-- learning rate;
-- parametros totais;
+- perplexity;
+- tokens/s;
+- VRAM maxima;
+- RAM;
 - parametros treinaveis;
-- porcentagem treinavel;
-- tempo estimado por etapa.
+- tamanho de checkpoint;
+- taxa de reutilizacao;
+- erro de reconstrucao;
+- ganho por byte;
+- degradacao apos merge.
 
-## Fluxo de Treino
+## 22. Data Pipeline
 
-1. Usuario chama `SAINT train`.
-2. CLI carrega config.
-3. Model Adapter inspeciona modelo.
-4. Memory Planner cria plano de execucao.
-5. SAINT imprime o plano e avisos.
-6. Data Pipeline prepara batches.
-7. Block Scheduler define parametros ativos.
-8. Trainer executa micro-steps.
-9. Checkpoint Manager salva progresso.
-10. Avaliador mede loss ou metricas especificas.
-11. Runtime ajusta plano se houver OOM.
+O Data Pipeline deve ser simples e streaming.
 
-## Politica de OOM
+Formatos:
 
-Se ocorrer out-of-memory:
+- `.txt`;
+- `.jsonl`;
+- `.npy`;
+- `.bin`;
+- shards tokenizados.
+
+Responsabilidades:
+
+- carregar sem estourar RAM;
+- gerar janelas;
+- controlar shuffle;
+- salvar metadados;
+- permitir datasets pequenos para testes.
+
+## 23. Politica de OOM
+
+Se ocorrer OOM:
 
 1. limpar cache CUDA;
-2. reduzir micro-batch;
-3. reduzir seq_len se permitido;
-4. aumentar gradient accumulation;
-5. ativar checkpointing se desligado;
-6. aumentar offload;
-7. se ainda falhar, abortar com plano sugerido.
+2. reduzir blocos ativos;
+3. reduzir codebook entries ativas;
+4. reduzir micro-batch;
+5. reduzir seq_len se permitido;
+6. aumentar gradient accumulation;
+7. aumentar offload;
+8. trocar blocos menores por representacao maior/mais compacta;
+9. abortar com relatorio se continuar inviavel.
 
 SAINT nao deve entrar em loop infinito tentando configuracoes aleatorias.
 
-## Integracao com `drm_transformer`
+## 24. Fluxo de Treino
 
-O `drm_transformer` pode ser o primeiro modelo usado pelo SAINT porque ja possui:
+Fluxo completo:
 
-- configuracao propria;
-- modelo PyTorch;
-- trainer;
-- dataset por shards;
-- suporte a mixed precision;
-- checkpointing;
-- metricas especificas.
+```text
+1. carregar config
+2. carregar modelo base
+3. inspecionar matrizes
+4. estimar memoria
+5. particionar matrizes candidatas
+6. criar assinaturas
+7. criar ou carregar codebooks
+8. medir reconstrucao
+9. medir sensibilidade
+10. rotear regioes
+11. criar plano de fases
+12. treinar deltas ativos com loss global
+13. salvar checkpoint
+14. consolidar
+15. avaliar
+16. recompor/fundir
+```
 
-No SAINT, ele deve entrar por um adapter:
+## 25. Fluxo de Reconstrucao de Matriz
+
+Antes de LLM, SAINT precisa provar reconstrucao.
+
+```text
+W
+  -> particionar
+  -> agrupar blocos
+  -> criar codebook
+  -> reconstruir W_aprox
+  -> medir erro
+  -> comparar com SVD/LoRA/quantizacao
+```
+
+Esse fluxo valida a representacao sem misturar treino de modelo.
+
+## 26. Integracao com drm_transformer
+
+O `drm_transformer` entra como primeiro adapter customizado.
+
+O adapter deve:
+
+- carregar `DRMTransformer`;
+- listar blocos e matrizes;
+- congelar base;
+- anexar deltas SAINT;
+- executar forward;
+- expor loss;
+- salvar deltas;
+- comparar contra trainer original.
+
+Arquitetura:
 
 ```text
 SAINT Trainer
   -> DRMTransformerAdapter
       -> DRMTransformer
-      -> DRMTransformerConfig
+      -> matrizes
+      -> deltas SAINT
 ```
 
-O adapter deve traduzir chamadas genericas como `freeze_all`, `enable_block`, `save_trainable` e `forward` para a API real do `drm_transformer`.
+## 27. Escalabilidade
 
-## Realidade Sobre Modelos Gigantes
-
-Estimativa simplificada apenas para pesos:
+SAINT deve escalar por etapas:
 
 ```text
-20B em fp16  ~= 40 GB so pesos
-70B em fp16  ~= 140 GB so pesos
-640B em fp16 ~= 1280 GB so pesos
+matriz isolada
+camada linear
+mini-transformer
+drm_transformer pequeno
+modelo HF pequeno
+3B
+14B
+70B
 ```
 
-Treino completo normalmente exige muito mais memoria por causa de:
+Nao escalar antes de provar.
 
-- gradientes;
-- Adam moments;
-- ativacoes;
-- buffers temporarios;
-- fragmentacao;
-- contexto longo.
+## 28. Decisoes de Design
 
-Portanto, em GPUs de 12GB ou 24GB, SAINT deve usar:
+1. O modelo base deve permanecer congelado por padrao.
+2. Deltas sao o principal objeto de treino.
+3. Codebooks devem ser multi-escala.
+4. Roteamento deve ser explicavel antes de ser treinavel.
+5. Sensibilidade deve guiar escolha de partes.
+6. Orcamento de VRAM e restricao central, nao detalhe.
+7. Reconstrucao de matriz deve ser testada antes de LLM.
+8. Baselines LoRA/QLoRA sao obrigatorias.
+9. Checkpoints devem ser recomponiveis.
+10. O sistema deve mostrar quando uma meta e inviavel.
 
-- quantizacao para o modelo base;
-- LoRA/adapters para parametros treinaveis;
-- offload CPU/NVMe;
-- treino por blocos;
-- micro-batch pequeno;
-- gradient accumulation.
+## 29. Criterios de Sucesso
 
-## Roadmap Inicial
+SAINT sera promissor se mostrar pelo menos uma vantagem:
 
-### Fase 1 - Documento e Esqueleto
+- menor memoria que LoRA em algum regime;
+- menor checkpoint;
+- melhor ganho por parametro treinavel;
+- melhor ganho por byte;
+- boa adaptacao com base congelada;
+- codebook reutilizavel;
+- recomposicao estavel.
 
-- definir arquitetura;
-- criar pacote `SAINT`;
-- criar CLI minima;
-- criar config dataclass;
-- criar memory planner estimativo;
-- criar testes unitarios do planner.
+SAINT sera fraco se:
 
-### Fase 2 - Treino Pequeno
+- nao comprimir matrizes melhor que alternativas simples;
+- nao convergir em modelos pequenos;
+- perder sempre para LoRA/QLoRA;
+- tiver overhead alto demais;
+- nao reutilizar padroes;
+- depender de ajustes manuais excessivos.
 
-- implementar treino `full_small`;
-- treinar modelo pequeno local;
-- salvar checkpoints;
-- validar resume.
+## 30. Resumo
 
-### Fase 3 - Adapter DRM
+A arquitetura SAINT e um runtime para:
 
-- integrar `drm_transformer`;
-- listar blocos;
-- congelar/descongelar parametros;
-- executar treino simples;
-- medir memoria.
+```text
+inspecionar matrizes
+particionar em blocos multi-escala
+criar codebooks
+medir sensibilidade
+rotear regioes
+treinar deltas esparsos
+consolidar
+recompor modelo final
+```
 
-### Fase 4 - LoRA/Adapters
+O nucleo e:
 
-- inserir LoRA em camadas lineares;
-- salvar somente pesos LoRA;
-- carregar LoRA sobre modelo base;
-- estimar memoria treinavel.
-
-### Fase 5 - Blockwise
-
-- scheduler de blocos;
-- offload CPU;
-- checkpoints parciais;
-- politicas de revisao.
-
-### Fase 6 - Modelos Externos
-
-- adapter Hugging Face;
-- suporte a modelos quantizados;
-- streaming datasets;
-- avaliacao padronizada.
-
-## Criterios de Sucesso
-
-O primeiro SAINT funcional deve conseguir:
-
-1. receber `--vram-gb`;
-2. estimar se um plano cabe;
-3. treinar um modelo pequeno de ponta a ponta;
-4. treinar somente parametros selecionados de um modelo maior;
-5. salvar e retomar checkpoints;
-6. mostrar claramente quando uma meta e inviavel.
-
-## Decisao de Design
-
-SAINT deve ser honesto e simples. O valor do projeto nao esta em fingir que uma GPU domestica treina um 640B completo, mas em tornar experimentos reais de IA mais acessiveis usando tecnicas de memoria limitada de forma automatizada e compreensivel.
+```text
+loss global,
+atualizacao local,
+padroes compartilhados,
+calculo agrupado,
+recomposicao final
+```
