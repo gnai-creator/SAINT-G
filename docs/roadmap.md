@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 10 - Checkpoint Robusto
-Fase anterior: Fase 9 concluida
-Proximo marco: Fase 10 - Checkpoint Robusto
+Fase atual: Fase 12 - Modelos Hugging Face Pequenos
+Fase anterior: Fase 11 concluida
+Proximo marco: Fase 12 - Modelos Hugging Face Pequenos
 ```
 
 Resumo do estado:
@@ -46,10 +46,11 @@ Resumo do estado:
 | 7 | Runtime SAINT | Concluida |
 | 8 | Checkpoint e Reconstituicao | Concluida |
 | 9 | Adaptador DRM Transformer | Concluida |
-| 10 | Checkpoint Robusto | Pendente |
-| 11+ | Modelos reais e escala | Pendente |
+| 10 | Checkpoint Robusto | Concluida |
+| 11 | Checkpoint Escalavel | Concluida |
+| 12+ | Modelos reais e escala | Pendente |
 
-## 1. Fase 0 - Fundacao Conceitual
+## Fase 0 - Fundacao Conceitual
 
 Status: **concluida**.
 
@@ -112,7 +113,7 @@ o paradigma esta definido o suficiente para iniciar validacao matematica
 sem escrever ainda um runtime grande.
 ```
 
-## 2. Fase 1 - Biblioteca de Blocos
+## Fase 1 - Biblioteca de Blocos
 
 Status: **concluida**.
 
@@ -197,7 +198,7 @@ Reavaliar a fase se:
 - agrupamento aproximado destruir informacao demais;
 - a API ficar acoplada demais a LLMs antes da hora.
 
-## 3. Fase 2 - Benchmark de Reconstrucao
+## Fase 2 - Benchmark de Reconstrucao
 
 Status: **concluida**.
 
@@ -269,7 +270,7 @@ Prosseguir somente se o codebook multi-escala mostrar vantagem clara em pelo men
 - alta taxa de reutilizacao;
 - reconstrucao eficiente o suficiente para uso em treino.
 
-## 4. Fase 3 - Roteador de Blocos
+## Fase 3 - Roteador de Blocos
 
 Status: **concluida**.
 
@@ -394,7 +395,7 @@ Fase 3 passa no criterio minimo de reconstrucao;
 freeze melhora compressao, mas precisa ser validado em treino de deltas na Fase 4.
 ```
 
-## 5. Fase 4 - Treino de Camada Linear
+## Fase 4 - Treino de Camada Linear
 
 Status: **concluida**.
 
@@ -681,7 +682,7 @@ Resultado:
 Fase 4 concluida pelo criterio atual.
 ```
 
-## 6. Fase 5 - Mini-Transformer
+## Fase 5 - Mini-Transformer
 
 Status: **concluida**.
 
@@ -793,7 +794,7 @@ seq_len: 128 a 512
 
 Prosseguir se SAINT aprender de forma consistente e nao apenas memorizar comportamento acidental.
 
-## 7. Fase 6 - Mapa de Sensibilidade
+## Fase 6 - Mapa de Sensibilidade
 
 Status: **concluida**.
 
@@ -895,7 +896,7 @@ Comparar selecao:
 
 O mapa de sensibilidade deve superar selecao aleatoria de forma clara.
 
-## 8. Fase 7 - Runtime SAINT
+## Fase 7 - Runtime SAINT
 
 Status: **concluida**.
 
@@ -993,7 +994,7 @@ saint merge --run runs/exp001
 
 O runtime deve executar experimentos pequenos de ponta a ponta com logs e checkpoints.
 
-## 9. Fase 8 - Checkpoint e Reconstituicao
+## Fase 8 - Checkpoint e Reconstituicao
 
 Status: **concluida**.
 
@@ -1070,7 +1071,7 @@ SAINT deve conseguir:
 treinar -> salvar -> retomar -> fundir -> avaliar
 ```
 
-## 10. Fase 9 - Adaptador DRM Transformer
+## Fase 9 - Adaptador DRM Transformer
 
 Status: **concluida**.
 
@@ -1151,9 +1152,9 @@ shape_validation: true
 
 O `drm_transformer` deve treinar em modo SAINT em escala pequena e produzir logs comparaveis.
 
-## 11. Fase 10 - Checkpoint Robusto
+## Fase 10 - Checkpoint Robusto
 
-Status: **pendente**.
+Status: **concluida**.
 
 ### Objetivo
 
@@ -1175,6 +1176,28 @@ deve refletir o que um treino com PyTorch/autograd realmente precisa salvar.
 - suporte a checkpoints parciais por matriz/camada;
 - documentacao do formato.
 
+### Resultado
+
+O runtime agora salva checkpoints robustos como manifesto leve mais payloads
+compactos:
+
+```text
+checkpoint.json
+deltas.saintbin
+optimizer.saintopt
+```
+
+O `checkpoint.json` contem a versao do formato e checksums SHA-256 dos arquivos.
+O `resume` valida os checksums, carrega estado de otimizador e rejeita payload
+corrompido. O `merge` tambem valida integridade antes de reconstituir pesos.
+
+Formato:
+
+```text
+format: saint_checkpoint
+format_version: 1
+```
+
 ### Perguntas
 
 - Qual e o menor formato suficiente para retomar treino?
@@ -1194,7 +1217,72 @@ treinar -> salvar checkpoint compacto -> validar -> retomar -> fundir -> avaliar
 
 com checksums e estado de otimizador preservados.
 
-## 12. Fase 11 - Modelos Hugging Face Pequenos
+## Fase 11 - Checkpoint Escalavel
+
+Status: **concluida**.
+
+### Objetivo
+
+Escalar o formato robusto para treinos maiores, com retomada real de otimizador,
+payloads grandes e controle de compatibilidade entre versoes.
+
+Esta fase aprofunda a Fase 10. A Fase 10 provou o formato robusto; a Fase 11
+deve tornar esse formato apropriado para modelos maiores e runs longos.
+
+### Entregas
+
+- salvar estado completo de AdamW no caminho DRM autograd;
+- adicionar suporte a shards grandes;
+- adicionar mmap para payloads muito grandes;
+- trocar `float32` por formatos opcionais como `float16`, `bfloat16` e quantizado;
+- adicionar migracao entre versoes de checkpoint.
+
+### Resultado
+
+O checkpoint robusto agora suporta:
+
+- estado real de AdamW no caminho `drm_saint_autograd_smoke`;
+- retomada real de treino via `metadata.resume_run`;
+- payloads de delta shardados;
+- leitura de payload por `mmap`;
+- dtypes `float32`, `float16`, `bfloat16` e `int8`;
+- ponto de migracao de manifesto por `format_version`.
+
+Smoke validado:
+
+```text
+first_loss: 4.1385
+resume_initial_loss: 4.1385
+second_loss: 4.1327
+optimizer: AdamW
+delta_format: saint_matrix_shards
+dtype: float16
+shards: 6
+shape_validation: true
+```
+
+### Ordem Tecnica
+
+1. Estado real de AdamW, porque sem isso `resume` ainda nao retoma treino de verdade.
+2. Shards, porque modelos reais nao devem depender de um unico payload gigante.
+3. Dtypes opcionais, porque reduzem tamanho e I/O.
+4. `mmap`, para ler trechos sem carregar tudo na RAM.
+5. Migracao entre versoes, quando houver mais de um formato real.
+
+### Perguntas
+
+- Qual parte do estado de AdamW precisa ser preservada por bloco?
+- O shard deve ser por matriz, camada, tipo de tensor ou tamanho maximo?
+- Qual dtype minimo mantem reconstrucao estavel?
+- O merge consegue ler apenas os shards necessarios?
+- Como validar compatibilidade entre formato antigo e novo?
+
+### Criterio de conclusao
+
+SAINT deve conseguir retomar um treino DRM autograd preservando estado real de
+AdamW e usando checkpoints shardados/compactos com validacao de integridade.
+
+## Fase 12 - Modelos Hugging Face Pequenos
 
 Status: **pendente**.
 
@@ -1221,7 +1309,7 @@ Testar SAINT em modelos reais pequenos.
 
 SAINT deve mostrar vantagem ou comportamento complementar a LoRA em pelo menos um tipo de tarefa.
 
-## 13. Fase 12 - Escala 3B
+## Fase 13 - Escala 3B
 
 Status: **pendente**.
 
@@ -1249,7 +1337,7 @@ offload: opcional
 - medir tokens/s;
 - medir ganho por byte.
 
-## 14. Fase 13 - Escala 14B
+## Fase 14 - Escala 14B
 
 Status: **pendente**.
 
@@ -1284,7 +1372,7 @@ Prosseguir para 70B somente se 14B demonstrar:
 - tempo aceitavel;
 - alguma vantagem contra baseline.
 
-## 15. Fase 14 - Escala 70B
+## Fase 15 - Escala 70B
 
 Status: **pendente**.
 
@@ -1329,7 +1417,7 @@ com checkpoint recomponivel
 e alguma melhoria mensuravel na loss
 ```
 
-## 16. Fase 15 - Otimizacoes
+## Fase 16 - Otimizacoes
 
 Status: **pendente**.
 
@@ -1354,7 +1442,7 @@ Reduzir overhead.
 
 O overhead do SAINT deve ficar pequeno o bastante para ser pratico em experimentos reais.
 
-## 17. Fase 16 - Avaliacao
+## Fase 17 - Avaliacao
 
 Status: **pendente**.
 
@@ -1381,7 +1469,7 @@ Medir qualidade alem da loss.
 - SAINT escala com modelo maior?
 - SAINT depende demais do dataset?
 
-## 18. Fase 17 - Produto de Pesquisa
+## Fase 18 - Produto de Pesquisa
 
 Status: **pendente**.
 

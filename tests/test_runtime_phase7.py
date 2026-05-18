@@ -95,9 +95,15 @@ class RuntimePhase7Tests(unittest.TestCase):
             self.assertEqual(inspected["adapter"], "drm_transformer_checkpoint")
             self.assertEqual(len(inspected["matrices"]), 2)
             self.assertTrue(result["has_delta_payload"])
+            self.assertEqual(result["format"], "saint_checkpoint")
+            self.assertEqual(result["format_version"], 1)
+            self.assertNotIn("delta_payload", result)
+            self.assertTrue((run_dir / "deltas.saintbin").exists())
+            self.assertTrue((run_dir / "optimizer.saintopt").exists())
             self.assertEqual(result["metadata"]["marco"], "fase_9_marco_1")
             self.assertTrue(result["metadata"]["shape_validation"])
             self.assertTrue(resumed["resumed"])
+            self.assertIn("optimizer_state", resumed)
             self.assertTrue(merged["merged"])
             self.assertTrue(merged["shape_validation"])
             self.assertIn("layers.0.attn.q_proj.weight", merged["merged_weights"])
@@ -112,11 +118,50 @@ class RuntimePhase7Tests(unittest.TestCase):
 
             self.assertEqual(result["experiment_name"], config.experiment_name)
             self.assertTrue(result["has_delta_payload"])
-            self.assertIn("delta_payload", result)
+            self.assertEqual(result["format"], "saint_checkpoint")
+            self.assertNotIn("delta_payload", result)
             self.assertTrue((Path(config.output_dir) / "checkpoint.json").exists())
+            self.assertTrue((Path(config.output_dir) / "deltas.saintbin").exists())
+            self.assertTrue((Path(config.output_dir) / "optimizer.saintopt").exists())
             self.assertTrue(resumed["resumed"])
+            self.assertIn("optimizer_state", resumed)
             self.assertTrue(merged["merged"])
             self.assertIn("merged_weights", merged)
+
+    def test_resume_rejects_corrupt_compact_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = RuntimeConfig(output_dir=str(Path(tmp) / "run"), steps=1, parameter_budget=24)
+
+            train_runtime(config)
+            delta_path = Path(config.output_dir) / "deltas.saintbin"
+            with delta_path.open("ab") as handle:
+                handle.write(b"corrupt")
+
+            with self.assertRaises(ValueError):
+                resume_runtime(config.output_dir)
+
+    def test_sharded_dtype_checkpoint_merges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = RuntimeConfig(
+                output_dir=str(Path(tmp) / "run"),
+                steps=1,
+                parameter_budget=24,
+                metadata={
+                    "checkpoint_dtype": "float16",
+                    "checkpoint_shard_bytes": 64,
+                },
+            )
+
+            result = train_runtime(config)
+            merged = merge_runtime(config.output_dir)
+            delta_entry = next(
+                entry for entry in result["files"] if entry["payload"] == "delta"
+            )
+
+            self.assertEqual(delta_entry["format"], "saint_matrix_shards")
+            self.assertEqual(delta_entry["dtype"], "float16")
+            self.assertGreater(delta_entry["shard_count"], 1)
+            self.assertTrue(merged["shape_validation"])
 
     def test_cli_commands_run(self):
         with tempfile.TemporaryDirectory() as tmp:

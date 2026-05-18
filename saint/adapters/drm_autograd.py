@@ -169,6 +169,15 @@ def _snapshot(named_params) -> dict[str, Any]:
     return {name: param.detach().clone() for name, param in named_params}
 
 
+def _apply_delta_payload(torch, named_params, delta_payload: dict[str, Any], device: str) -> None:
+    params = dict(named_params)
+    for name, matrix in delta_payload.items():
+        if name not in params:
+            continue
+        delta = torch.tensor(matrix, dtype=params[name].dtype, device=device)
+        params[name].data.add_(delta)
+
+
 def _delta_payload(named_params, initial: dict[str, Any]) -> dict[str, list[list[float]]]:
     return {
         name: (param.detach().cpu() - initial[name].cpu()).tolist()
@@ -193,6 +202,70 @@ def _train_full_baseline(model, torch, inputs, targets, steps: int, learning_rat
     return float(_loss_value(model, inputs, targets).detach().cpu().item())
 
 
+def _tensor_to_json(value: Any) -> Any:
+    if hasattr(value, "detach"):
+        return {
+            "__tensor__": True,
+            "dtype": str(value.dtype).replace("torch.", ""),
+            "data": value.detach().cpu().tolist(),
+        }
+    if isinstance(value, dict):
+        return {str(key): _tensor_to_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_tensor_to_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [_tensor_to_json(item) for item in value]
+    return value
+
+
+def _dtype_from_name(torch, name: str):
+    return getattr(torch, name, torch.float32)
+
+
+def _json_to_tensor(torch, value: Any) -> Any:
+    if isinstance(value, dict) and value.get("__tensor__"):
+        return torch.tensor(value["data"], dtype=_dtype_from_name(torch, value["dtype"]))
+    if isinstance(value, dict):
+        return {key: _json_to_tensor(torch, item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_to_tensor(torch, item) for item in value]
+    return value
+
+
+def _optimizer_to_payload(optimizer) -> dict[str, Any]:
+    return {
+        "optimizer": "AdamW",
+        "adamw_state": _tensor_to_json(optimizer.state_dict()),
+    }
+
+
+def _optimizer_from_payload(torch, payload: dict[str, Any]) -> dict[str, Any] | None:
+    state = payload.get("adamw_state")
+    if not isinstance(state, dict):
+        return None
+    decoded = _json_to_tensor(torch, state)
+    if isinstance(decoded.get("state"), dict):
+        decoded["state"] = {int(key): value for key, value in decoded["state"].items()}
+    return decoded
+
+
+def _load_resume_payloads(metadata: dict[str, Any]) -> tuple[dict | None, dict | None]:
+    resume_run = metadata.get("resume_run")
+    if not resume_run:
+        return None, None
+    from saint.checkpoints import (
+        require_delta_payload,
+        require_optimizer_state,
+        validate_checkpoint_bundle,
+    )
+
+    checkpoint = validate_checkpoint_bundle(resume_run)
+    return (
+        require_delta_payload(checkpoint, resume_run),
+        require_optimizer_state(checkpoint, resume_run),
+    )
+
+
 def run_drm_autograd(config: RuntimeConfig) -> MiniTransformerResult:
     start = perf_counter()
     metadata = dict(config.metadata or {})
@@ -204,12 +277,15 @@ def run_drm_autograd(config: RuntimeConfig) -> MiniTransformerResult:
     model = model_cls(drm_config).to(device)
     model.train()
     _load_optional_model_state(model, metadata, torch)
+    resume_delta, resume_optimizer = _load_resume_payloads(metadata)
     inputs, targets = _make_token_batch(torch, metadata, drm_config.vocab_size, device)
     named_params = _trainable_named_parameters(model, _keywords(metadata))
     if not named_params:
         raise ValueError("no trainable DRM matrices matched SAINT keywords")
 
     initial_params = _snapshot(named_params)
+    if resume_delta is not None:
+        _apply_delta_payload(torch, named_params, resume_delta, device)
     initial_loss = _loss_value(model, inputs, targets)
     initial_loss.backward()
     block_size = int(metadata.get("block_size", 2))
@@ -219,7 +295,11 @@ def run_drm_autograd(config: RuntimeConfig) -> MiniTransformerResult:
     model.zero_grad(set_to_none=True)
 
     learning_rate = float(metadata.get("learning_rate", 0.01))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW([param for _name, param in named_params], lr=learning_rate)
+    if resume_optimizer is not None:
+        optimizer_state = _optimizer_from_payload(torch, resume_optimizer)
+        if optimizer_state is not None:
+            optimizer.load_state_dict(optimizer_state)
     for _ in range(max(1, config.steps)):
         optimizer.zero_grad()
         loss = _loss_value(model, inputs, targets)
@@ -247,6 +327,7 @@ def run_drm_autograd(config: RuntimeConfig) -> MiniTransformerResult:
         elapsed_s=perf_counter() - start,
         metadata={
             "delta_payload": _delta_payload(named_params, initial_params),
+            "optimizer_state_payload": _optimizer_to_payload(optimizer),
             "initial_loss": float(initial_loss.detach().cpu().item()),
             "full_baseline_loss": baseline_loss,
             "selected_regions": selected,
@@ -255,6 +336,7 @@ def run_drm_autograd(config: RuntimeConfig) -> MiniTransformerResult:
             "autograd": True,
             "sensitivity_method": "gradient_abs_sum",
             "marco": "fase_9_marco_2",
+            "resumed_from": metadata.get("resume_run"),
         },
     )
 

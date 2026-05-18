@@ -10,8 +10,12 @@ from saint.checkpoints import (
     checkpoint_payload,
     read_json,
     require_delta_payload,
+    require_optimizer_state,
+    validate_checkpoint_bundle,
+    write_checkpoint_bundle,
     write_json,
     write_jsonl,
+    write_metrics,
 )
 from saint.config import RuntimeConfig, load_config, save_config
 from saint.memory import estimate_runtime_memory
@@ -49,8 +53,8 @@ def train_runtime(config: RuntimeConfig) -> dict:
     result = run_method(config)
     payload = checkpoint_payload(result, config, memory_plan)
     payload["elapsed_s_total"] = perf_counter() - start
-    write_json(output_dir / "metrics.json", payload)
-    write_json(output_dir / "checkpoint.json", payload)
+    write_metrics(output_dir / "metrics.json", payload)
+    manifest = write_checkpoint_bundle(output_dir, payload)
     events.append(
         {
             "event": "result",
@@ -61,22 +65,21 @@ def train_runtime(config: RuntimeConfig) -> dict:
     )
     events.append({"event": "complete"})
     write_jsonl(output_dir / "logs.jsonl", events)
-    return payload
+    return manifest
 
 
 def resume_runtime(run_dir: str | Path) -> dict:
-    checkpoint = read_json(Path(run_dir) / "checkpoint.json")
-    if checkpoint.get("has_delta_payload"):
-        require_delta_payload(checkpoint)
+    checkpoint = validate_checkpoint_bundle(run_dir)
+    checkpoint["optimizer_state"] = require_optimizer_state(checkpoint, run_dir)
     checkpoint["resumed"] = True
     return checkpoint
 
 
 def merge_runtime(run_dir: str | Path) -> dict:
     run_path = Path(run_dir)
-    checkpoint = read_json(run_path / "checkpoint.json")
+    checkpoint = validate_checkpoint_bundle(run_path)
     config = load_config(run_path / "config.json")
-    delta_payload = require_delta_payload(checkpoint)
+    delta_payload = require_delta_payload(checkpoint, run_path)
     task = make_task(config)
     merged_weights = combine_weights(task.base_weights, delta_payload)
     base_shapes = _shape_summary(task.base_weights)
