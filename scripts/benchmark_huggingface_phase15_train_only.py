@@ -61,6 +61,7 @@ def _config(args) -> RuntimeConfig:
         "routing_method": args.routing_method,
         "routing_max_length": args.routing_max_length,
         "routing_batch_size": args.routing_batch_size,
+        "routing_block_size": args.routing_block_size,
         "delta_application": "inplace",
         "train_only": True,
         "gradient_checkpointing": args.gradient_checkpointing,
@@ -71,6 +72,7 @@ def _config(args) -> RuntimeConfig:
         "validation_rerank_multiplier": args.validation_rerank_multiplier,
         "validation_rerank_chunk_size": args.validation_rerank_chunk_size,
         "validation_probe_epsilon": args.validation_probe_epsilon,
+        "validation_rerank_max_candidates": args.validation_rerank_max_candidates,
         "target_names": _target_names(args.target_names),
         "target_device": args.target_device,
         "max_cuda_gb": args.max_cuda_gb,
@@ -134,6 +136,7 @@ def main() -> None:
     parser.add_argument("--routing-method", default="activation")
     parser.add_argument("--routing-max-length", type=int, default=4)
     parser.add_argument("--routing-batch-size", type=int, default=1)
+    parser.add_argument("--routing-block-size", type=int, default=1)
     parser.add_argument(
         "--target-names",
         default="model.layers.0.self_attn.q_proj.weight",
@@ -148,6 +151,7 @@ def main() -> None:
     parser.add_argument("--validation-rerank-multiplier", type=int, default=4)
     parser.add_argument("--validation-rerank-chunk-size", type=int, default=256)
     parser.add_argument("--validation-probe-epsilon", type=float, default=1e-3)
+    parser.add_argument("--validation-rerank-max-candidates", type=int, default=None)
     parser.add_argument("--hf-device-map", default=None)
     parser.add_argument("--hf-max-memory", default=None)
     parser.add_argument("--hf-offload-folder", default=None)

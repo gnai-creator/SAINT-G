@@ -1076,3 +1076,156 @@ O proximo passo deve atacar onde SAINT ainda perde para LoRA:
 - medir validacao real antes/depois no mesmo corpus, nao apenas train loss;
 - testar `activation_validation_rerank` em camadas 1, 2 e 3;
 - manter LoRA forward-hook rank 1/2 como baseline obrigatorio.
+
+## Marco 9 - Blocos Treinaveis por Validacao
+
+Status: **concluido como experimento inicial**.
+
+### Mudancas
+
+- adicionado roteamento `activation_block_validation_rerank`;
+- adicionado `--routing-block-size`;
+- blocos 2x2 e 4x4 podem ser selecionados por score de ativacao;
+- a mini-validacao ranqueia blocos, nao apenas coordenadas individuais;
+- cada bloco testado aplica delta temporario e faz rollback;
+- adicionado `--validation-rerank-max-candidates` para limitar custo;
+- checkpoints e resultados agora registram:
+  - `initial_validation_loss`;
+  - `validation_loss`;
+  - `validation_loss_delta`.
+
+### Smoke 3B
+
+Config:
+
+```text
+model: models/Qwen2.5-3B
+target: layer0 v_proj
+routing: activation_block_validation_rerank
+block_size: 2
+budget: 64
+train_texts: 2
+validation_texts: 2
+```
+
+Resultado:
+
+| metodo | train delta | validation delta | params | routing CUDA |
+|---|---:|---:|---:|---:|
+| SAINT block2 | +0.012564 | +0.003355 | 32 | 6.194 GB |
+| LoRA rank 1 forward-hook | -0.197236 | n/a | 2304 | 6.262 GB |
+
+Leitura:
+
+```text
+o caminho por bloco executa e salva metricas de validacao reais, mas o smoke 3B
+nao mostrou ganho.
+```
+
+### 14B - Budget Pequeno por Bloco
+
+Config principal:
+
+```text
+model: models/Qwen2.5-14B
+target: model.layers.2.self_attn.v_proj.weight
+routing: activation_block_validation_rerank
+block_size: 4
+budget: 1024
+validation_rerank_max_candidates: 8
+train_texts: 3
+validation_texts: 6
+steps: 4
+max_memory: 0=12GiB,cpu=64GiB
+```
+
+Resultado com metrica de validacao corrigida:
+
+| metodo | train delta | validation delta | params | routing_s | train CUDA |
+|---|---:|---:|---:|---:|---:|
+| SAINT block4 layer 2 | -0.012179 | -0.013615 | 128 | 34.756 | 15.781 GB |
+| LoRA rank 1 forward-hook | -0.227059 | n/a | 6144 | n/a | 15.778 GB |
+
+Leitura:
+
+```text
+SAINT block4 melhorou validacao com apenas 128 parametros efetivos, mas ainda
+perde muito em qualidade absoluta para LoRA rank 1.
+```
+
+### Camadas 1, 2 e 3
+
+Config:
+
+```text
+block_size: 4
+validation_rerank_max_candidates: 8
+budget: 1024
+```
+
+| camada | train delta SAINT | validation delta SAINT | params efetivos | routing_s | LoRA rank 1 train delta |
+|---:|---:|---:|---:|---:|---:|
+| 1 | +0.019991 | n/a | 128 | 35.212 | -0.159320 |
+| 2 | -0.012179 | -0.013615 | 128 | 34.756 | -0.227059 |
+| 3 | -0.022025 | n/a | 128 | 36.826 | -0.196929 |
+
+Observacao:
+
+```text
+as primeiras medicoes de camadas 1 e 3 foram feitas antes da correcao do campo
+validation_loss final; por isso a tabela usa somente train delta nelas.
+```
+
+### Budget e Custo
+
+O teste com `block_size=2`, `budget=1024` e `max_candidates=64` selecionou 64
+blocos, ou 256 parametros efetivos:
+
+| metodo | train delta | params efetivos | routing_s |
+|---|---:|---:|---:|
+| SAINT block2 layer 2 | +0.026165 | 256 | 242.675 |
+
+O teste com `block_size=4`, `budget=1024` e 64 candidatos usou o budget completo,
+mas ainda ficou caro:
+
+| metodo | train delta | params efetivos | routing_s |
+|---|---:|---:|---:|
+| SAINT block4 layer 2 | -0.014973 | 1024 | 238.497 |
+
+Leitura:
+
+```text
+o rerank por validacao e viavel em memoria, mas caro em tempo. O limite de
+candidatos e necessario para experimentos 14B.
+```
+
+### Veredito
+
+```text
+Marco 9 introduziu blocos treinaveis e validacao real, mas ainda nao vence LoRA.
+```
+
+O resultado mais promissor e:
+
+```text
+SAINT block4 layer 2:
+validation_loss_delta = -0.013615
+params efetivos = 128
+train CUDA = 15.781 GB
+```
+
+Isso mostra sinal de generalizacao com poucos parametros, mas o ganho ainda e
+pequeno. LoRA forward-hook segue baseline obrigatorio e mais forte.
+
+## Proximo Marco
+
+Marco 10 deve melhorar eficiencia e qualidade dos blocos:
+
+- treinar blocos com valor estruturado, nao valores independentes por
+  coordenada;
+- testar bloco com escala + prototipo, por exemplo `delta = scale * P_4x4`;
+- acumular varios blocos candidatos em um unico forward de validacao para
+  reduzir `routing_s`;
+- selecionar mais blocos sem aumentar linearmente o numero de forwards;
+- medir validacao final para camadas 1, 2 e 3 com a metrica corrigida;
+- comparar contra LoRA forward-hook em validation loss, nao apenas train loss.

@@ -63,6 +63,12 @@ def _row_from_saint(result: dict[str, Any], *, budget: int, max_memory: str) -> 
         {
             "train_loss": checkpoint["train_loss"],
             "initial_loss": metadata.get("initial_loss", 0.0),
+            "validation_loss": metadata.get("validation_loss"),
+            "initial_validation_loss": metadata.get("initial_validation_loss"),
+            "validation_loss_delta": (
+                metadata.get("validation_loss", 0.0)
+                - metadata.get("initial_validation_loss", 0.0)
+            ),
             "parameter_count": checkpoint["parameter_count"],
             "loss_delta": checkpoint["train_loss"] - metadata.get("initial_loss", 0.0),
             "gain_per_parameter": max(
@@ -103,6 +109,7 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         routing_method=args.routing_method,
         routing_max_length=args.routing_max_length,
         routing_batch_size=args.routing_batch_size,
+        routing_block_size=args.routing_block_size,
         target_names=args.target_names,
         target_device=args.target_device,
         max_cuda_gb=args.max_cuda_gb,
@@ -113,6 +120,7 @@ def _saint_args(args, *, budget: int, max_memory: str) -> SimpleNamespace:
         validation_rerank_multiplier=args.validation_rerank_multiplier,
         validation_rerank_chunk_size=args.validation_rerank_chunk_size,
         validation_probe_epsilon=args.validation_probe_epsilon,
+        validation_rerank_max_candidates=args.validation_rerank_max_candidates,
         hf_device_map=args.hf_device_map,
         hf_max_memory=max_memory,
         hf_offload_folder=str(Path(args.out) / f"offload_{label}"),
@@ -157,8 +165,10 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
         values.routing_method,
         "--routing-max-length",
         str(values.routing_max_length),
-        "--routing-batch-size",
-        str(values.routing_batch_size),
+            "--routing-batch-size",
+            str(values.routing_batch_size),
+            "--routing-block-size",
+            str(values.routing_block_size),
         "--target-names",
         values.target_names,
         "--target-device",
@@ -189,6 +199,13 @@ def _run_saint_subprocess(args, *, budget: int, max_memory: str) -> dict[str, An
             str(values.validation_probe_epsilon),
         ]
     )
+    if values.validation_rerank_max_candidates is not None:
+        command.extend(
+            [
+                "--validation-rerank-max-candidates",
+                str(values.validation_rerank_max_candidates),
+            ]
+        )
     command.append("--measure-loss")
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     result_path = Path(values.out) / "phase15_train_only_result.json"
@@ -294,6 +311,7 @@ def main() -> None:
     parser.add_argument("--routing-method", default="activation")
     parser.add_argument("--routing-max-length", type=int, default=4)
     parser.add_argument("--routing-batch-size", type=int, default=1)
+    parser.add_argument("--routing-block-size", type=int, default=1)
     parser.add_argument("--target-names", default="model.layers.0.self_attn.q_proj.weight")
     parser.add_argument("--target-device", default="cuda")
     parser.add_argument("--max-cuda-gb", type=float, default=23.0)
@@ -304,6 +322,7 @@ def main() -> None:
     parser.add_argument("--validation-rerank-multiplier", type=int, default=4)
     parser.add_argument("--validation-rerank-chunk-size", type=int, default=256)
     parser.add_argument("--validation-probe-epsilon", type=float, default=1e-3)
+    parser.add_argument("--validation-rerank-max-candidates", type=int, default=None)
     parser.add_argument("--hf-device-map", default="auto")
     parser.add_argument("--lora-max-memory", default="0=14GiB,cpu=64GiB")
     parser.add_argument("--lora-learning-rate", type=float, default=0.001)

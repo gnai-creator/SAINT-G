@@ -288,6 +288,10 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         validation_probe_epsilon=float(
             metadata.get("validation_probe_epsilon", 1e-3)
         ),
+        routing_block_size=int(metadata.get("routing_block_size", 1)),
+        validation_rerank_max_candidates=metadata.get(
+            "validation_rerank_max_candidates"
+        ),
     )
     routing_elapsed = perf_counter() - routing_start
     routing_cuda_peak = _cuda_peak(torch, device)
@@ -297,11 +301,15 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
     lr_decay = float(metadata.get("lr_decay", 1.0))
     named = dict(model.named_parameters())
     initial_loss = 0.0
+    initial_validation_loss = 0.0
     measure_train_only_loss = bool(metadata.get("measure_train_only_loss", False))
     if train_only and measure_train_only_loss:
         with torch.no_grad():
             initial_loss = float(
                 _plain_loss(model, input_ids, attention_mask).detach().cpu().item()
+            )
+            initial_validation_loss = float(
+                _plain_loss(model, val_ids, val_mask).detach().cpu().item()
             )
     elif not train_only and delta_application == "inplace":
         initial_loss = inplace_loss_value(
@@ -364,7 +372,11 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         final_loss = inplace_loss_value(
             torch, model, named, deltas, coordinates, (input_ids, attention_mask)
         )
-        validation_loss = final_loss
+        validation_loss = (
+            float(train_info.get("validation_loss") or 0.0)
+            if delta_application == "inplace"
+            else final_loss
+        )
     elif train_only:
         validation_loss = final_loss
     elif delta_application == "inplace":
@@ -417,6 +429,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "device": str(device),
             "model_dtype": str(dtype).replace("torch.", "") if dtype is not None else "default",
             "initial_loss": initial_loss,
+            "initial_validation_loss": initial_validation_loss,
             "perplexity": exp(min(final_loss, 20.0)),
             "validation_loss": validation_loss,
             "validation_perplexity": exp(min(validation_loss, 20.0)),
@@ -434,6 +447,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "delta_application": delta_application,
             "routing_max_length": routing_length,
             "routing_batch_size": routing_batch_size,
+            "routing_block_size": int(metadata.get("routing_block_size", 1)),
             "target_matrices": names,
             "train_only": train_only,
             "gradient_checkpointing": bool(metadata.get("gradient_checkpointing", False)),

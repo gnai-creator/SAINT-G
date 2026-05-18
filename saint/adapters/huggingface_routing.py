@@ -212,6 +212,7 @@ def _validation_rerank_indices(
     chunk_size: int,
     validation_batch,
     epsilon: float,
+    max_candidates: int | None,
 ):
     named = dict(model.named_parameters())
     selected, offsets = _flatten_scores(
@@ -221,6 +222,8 @@ def _validation_rerank_indices(
     )
     if selected is None:
         return {}
+    if max_candidates is not None:
+        selected = selected[: max(1, max_candidates)]
     candidates = _indices_from_flat(torch, selected, offsets)
     baseline = _forward_loss_value(torch, model, validation_batch)
     ranked = []
@@ -282,6 +285,103 @@ def _validation_rerank_indices(
     }
 
 
+def _block_candidates(torch, scores: dict[str, Any], *, block_size: int, count: int):
+    candidates = []
+    for name, score in scores.items():
+        rows, cols = score.shape
+        for row in range(0, rows, block_size):
+            for col in range(0, cols, block_size):
+                block = score[row:min(row + block_size, rows), col:min(col + block_size, cols)]
+                candidates.append((float(block.abs().sum().item()), name, row, col))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[: max(1, count)]
+
+
+def _block_coords(torch, shape, row: int, col: int, block_size: int):
+    rows, cols = shape
+    row_values = torch.arange(row, min(row + block_size, rows))
+    col_values = torch.arange(col, min(col + block_size, cols))
+    grid_rows, grid_cols = torch.meshgrid(row_values, col_values, indexing="ij")
+    return grid_rows.flatten(), grid_cols.flatten()
+
+
+def _block_validation_indices(
+    torch,
+    model,
+    names,
+    scores: dict[str, Any],
+    *,
+    budget: int,
+    block_size: int,
+    candidate_multiplier: int,
+    validation_batch,
+    epsilon: float,
+    max_candidates: int | None,
+):
+    named = dict(model.named_parameters())
+    block_area = max(1, block_size * block_size)
+    block_budget = max(1, budget // block_area)
+    candidate_count = block_budget * max(1, candidate_multiplier)
+    if max_candidates is not None:
+        candidate_count = min(candidate_count, max(1, max_candidates))
+    raw = _block_candidates(
+        torch,
+        scores,
+        block_size=block_size,
+        count=candidate_count,
+    )
+    baseline = _forward_loss_value(torch, model, validation_batch)
+    ranked = []
+    for _score, name, row, col in raw:
+        if name not in names:
+            continue
+        param = named[name]
+        rows, cols = _block_coords(torch, param.shape, row, col, block_size)
+        rows = rows.to(param.device)
+        cols = cols.to(param.device)
+        best_gain = None
+        for direction in (-1.0, 1.0):
+            values = _temporary_coordinate_delta(
+                torch,
+                param,
+                rows,
+                cols,
+                epsilon=epsilon,
+                sign=direction,
+            )
+            with torch.no_grad():
+                param.index_put_((rows, cols), values, accumulate=True)
+            try:
+                loss = _forward_loss_value(torch, model, validation_batch)
+            finally:
+                with torch.no_grad():
+                    param.index_put_((rows, cols), -values, accumulate=True)
+            gain = baseline - loss
+            best_gain = gain if best_gain is None else max(best_gain, gain)
+            del values
+        ranked.append((float(best_gain or 0.0), name, row, col))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    chosen: dict[str, list[Any]] = {}
+    used = 0
+    for _gain, name, row, col in ranked:
+        if used >= block_budget:
+            break
+        rows, cols = _block_coords(torch, named[name].shape, row, col, block_size)
+        if rows.numel() > budget - sum(
+            part.numel() for parts in chosen.values() for part in parts[0]
+        ):
+            continue
+        chosen.setdefault(name, [[], []])
+        chosen[name][0].append(rows)
+        chosen[name][1].append(cols)
+        used += 1
+    return {
+        name: (torch.cat(parts[0]), torch.cat(parts[1]))
+        for name, parts in chosen.items()
+        if parts[0]
+    }
+
+
 def build_routed_deltas(
     torch,
     functional_call,
@@ -298,6 +398,8 @@ def build_routed_deltas(
     validation_rerank_multiplier: int = 4,
     validation_rerank_chunk_size: int = 256,
     validation_probe_epsilon: float = 1e-3,
+    routing_block_size: int = 1,
+    validation_rerank_max_candidates: int | None = None,
 ):
     named = dict(model.named_parameters())
     if routing_method == "gradient":
@@ -308,7 +410,11 @@ def build_routed_deltas(
         scores = _gradient_scores_sequential(
             torch, functional_call, model, names, input_ids, attention_mask, loss_fn
         )
-    elif routing_method in {"activation", "activation_validation_rerank"}:
+    elif routing_method in {
+        "activation",
+        "activation_validation_rerank",
+        "activation_block_validation_rerank",
+    }:
         scores = _activation_scores(torch, model, names, input_ids, attention_mask, hybrid=False)
     elif routing_method == "magnitude_activation":
         scores = _activation_scores(torch, model, names, input_ids, attention_mask, hybrid=True)
@@ -321,7 +427,20 @@ def build_routed_deltas(
     if not scores:
         scores = {name: named[name].detach().abs().cpu() for name in names}
     scores = _limit_scores(torch, scores, score_limits)
-    if routing_method == "activation_validation_rerank" and validation_batch is not None:
+    if routing_method == "activation_block_validation_rerank" and validation_batch is not None:
+        selected = _block_validation_indices(
+            torch,
+            model,
+            names,
+            scores,
+            budget=parameter_budget,
+            block_size=max(1, routing_block_size),
+            candidate_multiplier=validation_rerank_multiplier,
+            validation_batch=validation_batch,
+            epsilon=validation_probe_epsilon,
+            max_candidates=validation_rerank_max_candidates,
+        )
+    elif routing_method == "activation_validation_rerank" and validation_batch is not None:
         selected = _validation_rerank_indices(
             torch,
             model,
@@ -332,6 +451,7 @@ def build_routed_deltas(
             chunk_size=validation_rerank_chunk_size,
             validation_batch=validation_batch,
             epsilon=validation_probe_epsilon,
+            max_candidates=validation_rerank_max_candidates,
         )
     else:
         selected = _score_indices(torch, scores, budget=parameter_budget)

@@ -2690,6 +2690,52 @@ Proximo marco:
 - testar camadas 1, 2 e 3;
 - manter LoRA forward-hook rank 1/2 como baseline obrigatorio.
 
+### Marco 9 - Blocos Treinaveis por Validacao
+
+Status: **concluido como experimento inicial**.
+
+Mudancas:
+
+- criado `activation_block_validation_rerank`;
+- adicionado `--routing-block-size`;
+- blocos 2x2/4x4 sao escolhidos por ativacao e ranqueados por mini-validacao;
+- cada bloco usa delta temporario com rollback;
+- adicionado `--validation-rerank-max-candidates`;
+- resultados registram `initial_validation_loss`, `validation_loss` e
+  `validation_loss_delta`.
+
+Resultado principal em Qwen2.5-14B, layer 2 `v_proj`:
+
+| metodo | train delta | validation delta | params efetivos | routing_s | CUDA treino |
+|---|---:|---:|---:|---:|---:|
+| SAINT block4 rerank | -0.012179 | -0.013615 | 128 | 34.756 | 15.781 GB |
+| LoRA rank 1 forward-hook | -0.227059 | n/a | 6144 | n/a | 15.778 GB |
+
+Outros achados:
+
+- `block_size=2` com 64 candidatos ficou caro e ruim:
+  `routing_s=242.675`, `train_delta=+0.026165`;
+- `block_size=4` usa melhor o budget, mas 64 candidatos ainda custam
+  `routing_s=238.497`;
+- limitar a 8 candidatos reduz o roteamento para cerca de 35s;
+- SAINT block4 mostrou sinal de validacao positiva com poucos parametros, mas
+  LoRA forward-hook continua mais forte.
+
+Veredito:
+
+```text
+blocos treinaveis funcionam e a validacao real esta registrada,
+mas a qualidade ainda nao compete com LoRA.
+```
+
+Proximo marco:
+
+- usar blocos estruturados, por exemplo `delta = scale * prototype`;
+- agrupar varios candidatos em um unico forward de validacao;
+- reduzir custo de `routing_s`;
+- medir validation loss corrigida em camadas 1, 2 e 3;
+- comparar contra LoRA forward-hook em validation loss.
+
 ## Fase 16 - Escala 70B
 
 Status: **pendente**.
