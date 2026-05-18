@@ -45,6 +45,12 @@ class RuntimePhase7Tests(unittest.TestCase):
         self.assertIn("matrices", inspected)
         self.assertTrue(estimated["fits_budget"])
 
+    def test_drm_adapter_requires_checkpoint(self):
+        config = RuntimeConfig(task="drm_transformer")
+
+        with self.assertRaises(ValueError):
+            inspect_runtime(config)
+
     def test_train_resume_and_merge_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = RuntimeConfig(output_dir=str(Path(tmp) / "run"), steps=1, parameter_budget=24)
@@ -54,9 +60,12 @@ class RuntimePhase7Tests(unittest.TestCase):
             merged = merge_runtime(config.output_dir)
 
             self.assertEqual(result["experiment_name"], config.experiment_name)
+            self.assertTrue(result["has_delta_payload"])
+            self.assertIn("delta_payload", result)
             self.assertTrue((Path(config.output_dir) / "checkpoint.json").exists())
             self.assertTrue(resumed["resumed"])
             self.assertTrue(merged["merged"])
+            self.assertIn("merged_weights", merged)
 
     def test_cli_commands_run(self):
         with tempfile.TemporaryDirectory() as tmp:

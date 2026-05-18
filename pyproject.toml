@@ -1,0 +1,11 @@
+[project]
+name = "saint-training"
+version = "0.1.0"
+description = "Simple AI Node Training experimental runtime"
+requires-python = ">=3.10"
+
+[project.scripts]
+saint = "saint.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["saint*"]

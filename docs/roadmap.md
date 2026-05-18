@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 8 - Checkpoint e Reconstituicao
-Fase anterior: Fase 7 concluida
-Proximo marco: Fase 8 - Checkpoint e Reconstituicao
+Fase atual: Fase 9 - Adaptador DRM Transformer
+Fase anterior: Fase 8 concluida
+Proximo marco: Fase 9 - Adaptador DRM Transformer
 ```
 
 Resumo do estado:
@@ -44,8 +44,9 @@ Resumo do estado:
 | 5 | Mini-Transformer | Concluida |
 | 6 | Mapa de Sensibilidade | Concluida |
 | 7 | Runtime SAINT | Concluida |
-| 8 | Checkpoint e Reconstituicao | Pendente |
-| 9+ | Adapters e escala | Pendente |
+| 8 | Checkpoint e Reconstituicao | Concluida |
+| 9 | Adaptador DRM Transformer | Pendente |
+| 10+ | Modelos reais e escala | Pendente |
 
 ## 1. Fase 0 - Fundacao Conceitual
 
@@ -993,11 +994,47 @@ O runtime deve executar experimentos pequenos de ponta a ponta com logs e checkp
 
 ## 9. Fase 8 - Checkpoint e Reconstituicao
 
-Status: **pendente**.
+Status: **concluida**.
 
 ### Objetivo
 
 Salvar deltas parciais e recompor o modelo final.
+
+### Resultado
+
+O runtime agora salva deltas reais para o mini-transformer:
+
+```text
+checkpoint.json:
+  has_delta_payload: true
+  delta_payload: {...}
+```
+
+E o merge reconstroi pesos mesclados:
+
+```text
+merged.json:
+  merged: true
+  merged_weights: {...}
+```
+
+Implementado em:
+
+```text
+saint/checkpoints/manager.py
+saint/runtime/runner.py
+saint/transformer/saint_adapter.py
+saint/adapters/drm_transformer.py
+pyproject.toml
+docs/process/fase_8_checkpoint_reconstituicao.md
+```
+
+Conclusao:
+
+```text
+Fase 8 concluida para o mini-transformer dependency-free, com adapter inicial
+de checkpoint do drm_transformer para inspecao e base de reconstituicao.
+```
 
 ### Formatos
 

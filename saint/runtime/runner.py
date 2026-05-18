@@ -5,10 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 
-from saint.adapters import inspect_model, run_method
-from saint.checkpoints import checkpoint_payload, read_json, write_json, write_jsonl
+from saint.adapters import inspect_model, make_task, run_method
+from saint.checkpoints import (
+    checkpoint_payload,
+    read_json,
+    require_delta_payload,
+    write_json,
+    write_jsonl,
+)
 from saint.config import RuntimeConfig, load_config, save_config
 from saint.memory import estimate_runtime_memory
+from saint.transformer.model import combine_weights
 
 
 def inspect_runtime(config: RuntimeConfig) -> dict:
@@ -49,19 +56,27 @@ def train_runtime(config: RuntimeConfig) -> dict:
 
 def resume_runtime(run_dir: str | Path) -> dict:
     checkpoint = read_json(Path(run_dir) / "checkpoint.json")
+    if checkpoint.get("has_delta_payload"):
+        require_delta_payload(checkpoint)
     checkpoint["resumed"] = True
     return checkpoint
 
 
 def merge_runtime(run_dir: str | Path) -> dict:
-    checkpoint = read_json(Path(run_dir) / "checkpoint.json")
+    run_path = Path(run_dir)
+    checkpoint = read_json(run_path / "checkpoint.json")
+    config = load_config(run_path / "config.json")
+    delta_payload = require_delta_payload(checkpoint)
+    task = make_task(config)
+    merged_weights = combine_weights(task.base_weights, delta_payload)
     merged = {
         "experiment_name": checkpoint["experiment_name"],
         "method": checkpoint["method"],
         "parameter_count": checkpoint["parameter_count"],
+        "merged_weights": merged_weights,
         "merged": True,
     }
-    write_json(Path(run_dir) / "merged.json", merged)
+    write_json(run_path / "merged.json", merged)
     return merged
 
 

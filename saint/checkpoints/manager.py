@@ -28,7 +28,9 @@ def write_jsonl(path: str | Path, events: list[dict[str, Any]]) -> None:
 
 
 def checkpoint_payload(result, config, memory_plan) -> dict[str, Any]:
-    return {
+    metadata = dict(result.metadata)
+    delta_payload = metadata.pop("delta_payload", None)
+    payload = {
         "experiment_name": config.experiment_name,
         "method": result.name,
         "train_loss": result.train_loss,
@@ -37,7 +39,25 @@ def checkpoint_payload(result, config, memory_plan) -> dict[str, Any]:
         "optimizer_state_values": result.optimizer_state_values,
         "memory_plan": memory_plan.__dict__,
         "metadata": result.metadata,
+        "has_delta_payload": delta_payload is not None,
     }
+    if delta_payload is not None:
+        payload["delta_payload"] = delta_payload
+        payload["metadata"] = metadata
+    return payload
 
 
-__all__ = ["checkpoint_payload", "read_json", "write_json", "write_jsonl"]
+def require_delta_payload(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    payload = checkpoint.get("delta_payload")
+    if not isinstance(payload, dict):
+        raise ValueError("checkpoint does not contain a delta_payload")
+    return payload
+
+
+__all__ = [
+    "checkpoint_payload",
+    "read_json",
+    "require_delta_payload",
+    "write_json",
+    "write_jsonl",
+]

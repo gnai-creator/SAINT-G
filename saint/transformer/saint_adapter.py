@@ -163,13 +163,15 @@ def train_mini_saint_delta(
         for ref, gradient in gradients.items():
             set_value(ref, get_value(ref) - learning_rate * gradient)
 
+    final_deltas = materialize()
     return _result(
         name,
         task,
-        materialize(),
+        final_deltas,
         len(refs),
         start,
         {
+            "delta_payload": final_deltas,
             "parameter_budget": parameter_budget,
             "block_size": block_size,
             "prototype_count": sum(len(group) for group in prototypes.values()),
