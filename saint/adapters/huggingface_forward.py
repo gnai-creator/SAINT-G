@@ -131,6 +131,13 @@ def _loss(functional_call, model, params, input_ids, attention_mask):
     return functional_call(model, params, (), kwargs).loss
 
 
+def _plain_loss(model, input_ids, attention_mask):
+    kwargs = {"input_ids": input_ids, "labels": input_ids}
+    if attention_mask is not None:
+        kwargs["attention_mask"] = attention_mask
+    return model(**kwargs).loss
+
+
 def _loss_value(functional_call, model, params, input_ids, attention_mask) -> float:
     return float(
         _loss(functional_call, model, params, input_ids, attention_mask)
@@ -138,6 +145,63 @@ def _loss_value(functional_call, model, params, input_ids, attention_mask) -> fl
         .cpu()
         .item()
     )
+
+
+def _inplace_delta(torch, named, deltas, coordinates, *, sign: float) -> None:
+    with torch.no_grad():
+        for name, delta in deltas.items():
+            rows, cols = coordinates[name]
+            named[name].index_put_((rows, cols), sign * delta, accumulate=True)
+
+
+def _inplace_loss_value(torch, model, named, deltas, coordinates, input_ids, attention_mask):
+    _inplace_delta(torch, named, deltas, coordinates, sign=1.0)
+    try:
+        with torch.no_grad():
+            value = _plain_loss(model, input_ids, attention_mask)
+            return float(value.detach().cpu().item())
+    finally:
+        _inplace_delta(torch, named, deltas, coordinates, sign=-1.0)
+
+
+def _zero_target_grads(named, coordinates) -> None:
+    for name in coordinates:
+        grad = named[name].grad
+        if grad is not None:
+            grad.zero_()
+
+
+def _train_inplace_sparse(
+    torch,
+    model,
+    deltas,
+    coordinates,
+    train_batches,
+    *,
+    steps: int,
+    learning_rate: float,
+) -> None:
+    named = dict(model.named_parameters())
+    for name in coordinates:
+        named[name].requires_grad_(True)
+    for _ in range(steps):
+        _zero_target_grads(named, coordinates)
+        for batch_ids, batch_mask in train_batches:
+            _inplace_delta(torch, named, deltas, coordinates, sign=1.0)
+            try:
+                loss = _plain_loss(model, batch_ids, batch_mask) / len(train_batches)
+                loss.backward()
+            finally:
+                _inplace_delta(torch, named, deltas, coordinates, sign=-1.0)
+        with torch.no_grad():
+            for name, delta in deltas.items():
+                rows, cols = coordinates[name]
+                grad = named[name].grad
+                if grad is not None:
+                    delta.sub_(learning_rate * grad[rows, cols].to(delta.dtype))
+        _zero_target_grads(named, coordinates)
+    for name in coordinates:
+        named[name].requires_grad_(False)
 
 
 def _target_shapes(model, names: list[str]) -> dict[str, list[int]]:
@@ -225,6 +289,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         raise ValueError("no matching 2D Hugging Face matrices found")
     target_shapes = _target_shapes(model, names)
     routing_method = str(metadata.get("routing_method", "gradient"))
+    delta_application = str(metadata.get("delta_application", "functional"))
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     deltas, coordinates = build_routed_deltas(
@@ -244,24 +309,48 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         else 0
     )
     _check_cuda_budget(torch, device, metadata, "routing")
-    optimizer = torch.optim.AdamW(list(deltas.values()), lr=float(metadata.get("learning_rate", 1e-3)))
-    initial_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), input_ids, attention_mask)
+    learning_rate = float(metadata.get("learning_rate", 1e-3))
+    named = dict(model.named_parameters())
+    if delta_application == "inplace":
+        initial_loss = _inplace_loss_value(
+            torch, model, named, deltas, coordinates, input_ids, attention_mask
+        )
+    else:
+        optimizer = torch.optim.AdamW(list(deltas.values()), lr=learning_rate)
+        initial_loss = _loss_value(
+            functional_call,
+            model,
+            merged_params(torch, model, deltas, coordinates),
+            input_ids,
+            attention_mask,
+        )
     steps = max(1, int(config.steps))
     train_start = perf_counter()
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    for _ in range(steps):
-        optimizer.zero_grad()
-        for batch_ids, batch_mask in train_batches:
-            loss = _loss(
-                functional_call,
-                model,
-                merged_params(torch, model, deltas, coordinates),
-                batch_ids,
-                batch_mask,
-            ) / len(train_batches)
-            loss.backward()
-        optimizer.step()
+    if delta_application == "inplace":
+        _train_inplace_sparse(
+            torch,
+            model,
+            deltas,
+            coordinates,
+            train_batches,
+            steps=steps,
+            learning_rate=learning_rate,
+        )
+    else:
+        for _ in range(steps):
+            optimizer.zero_grad()
+            for batch_ids, batch_mask in train_batches:
+                loss = _loss(
+                    functional_call,
+                    model,
+                    merged_params(torch, model, deltas, coordinates),
+                    batch_ids,
+                    batch_mask,
+                ) / len(train_batches)
+                loss.backward()
+            optimizer.step()
     train_elapsed = max(perf_counter() - train_start, 1e-9)
     train_cuda_peak = (
         int(torch.cuda.max_memory_allocated(device))
@@ -269,8 +358,28 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
         else 0
     )
     _check_cuda_budget(torch, device, metadata, "train")
-    final_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), input_ids, attention_mask)
-    validation_loss = _loss_value(functional_call, model, merged_params(torch, model, deltas, coordinates), val_ids, val_mask)
+    if delta_application == "inplace":
+        final_loss = _inplace_loss_value(
+            torch, model, named, deltas, coordinates, input_ids, attention_mask
+        )
+        validation_loss = _inplace_loss_value(
+            torch, model, named, deltas, coordinates, val_ids, val_mask
+        )
+    else:
+        final_loss = _loss_value(
+            functional_call,
+            model,
+            merged_params(torch, model, deltas, coordinates),
+            input_ids,
+            attention_mask,
+        )
+        validation_loss = _loss_value(
+            functional_call,
+            model,
+            merged_params(torch, model, deltas, coordinates),
+            val_ids,
+            val_mask,
+        )
     parameter_count = int(sum(delta.numel() for delta in deltas.values()))
     tokens_seen = sum(int(ids.numel()) for ids, _ in train_batches) * steps
     cuda_peak = (
@@ -305,6 +414,7 @@ def run_hf_forward(config: RuntimeConfig) -> MiniTransformerResult:
             "train_cuda_peak_bytes": train_cuda_peak,
             "delta_payload_format": "saint_sparse_delta",
             "routing_method": routing_method,
+            "delta_application": delta_application,
             "routing_max_length": routing_length,
             "routing_batch_size": routing_batch_size,
             "target_matrices": names,

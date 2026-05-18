@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--saint-routing-batch-size", type=int, default=None)
     parser.add_argument("--model-dtype", default=None)
     parser.add_argument("--max-cuda-gb", type=float, default=None)
+    parser.add_argument("--saint-delta-application", default="functional")
     parser.add_argument("--skip-lora", action="store_true")
     parser.add_argument("--skip-generation", action="store_true")
     args = parser.parse_args()
@@ -59,6 +60,7 @@ def main() -> None:
         saint_routing_batch_size=args.saint_routing_batch_size,
         model_dtype=args.model_dtype,
         max_cuda_gb=args.max_cuda_gb,
+        saint_delta_application=args.saint_delta_application,
         prompts=() if args.skip_generation else ("SAINT", "Checkpoint", "Training"),
     )
     out = Path(args.out)

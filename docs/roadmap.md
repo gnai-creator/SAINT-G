@@ -27,9 +27,9 @@ recomposicao final
 ## Status Atual
 
 ```text
-Fase atual: Fase 14 - Escala 3B
-Fase anterior: Fase 13 concluida com ressalvas
-Proximo marco: Fase 14 Marco 9 - Reducao do Pico Funcional
+Fase atual: Fase 15 - Escala 14B
+Fase anterior: Fase 14 concluida com ressalvas
+Proximo marco: Fase 15 Marco 1 - Ponte 14B Controlada
 ```
 
 Resumo do estado:
@@ -50,7 +50,7 @@ Resumo do estado:
 | 11 | Checkpoint Escalavel | Concluida |
 | 12 | Validacao de Escala de Checkpoint | Concluida |
 | 13 | Modelos Hugging Face Pequenos | Concluida com ressalvas |
-| 14 | Escala 3B | Em andamento |
+| 14 | Escala 3B | Concluida com ressalvas |
 | 15+ | Modelos reais e escala | Pendente |
 
 ## Fase 0 - Fundacao Conceitual
@@ -2188,14 +2188,55 @@ Motivo:
 - `gradient_sequential` subset foi muito melhor que activation e LoRA;
 - o pico do forward funcional SAINT ainda fica maior que LoRA.
 
-Proximo marco:
+### Marco 9 - Reducao do Pico Funcional
 
-- evitar `zeros_like` completo por delta durante cada loss;
-- testar aplicacao temporaria in-place do delta e rollback;
-- comparar caminho funcional atual contra caminho in-place controlado;
-- medir memoria de merge/eval separada de load;
-- repetir `gradient_sequential` subset com seeds 31, 32 e 33;
-- decidir se Fase 14 fecha com `gradient_sequential` subset como baseline 3B.
+Status: **concluido**.
+
+Mudancas:
+
+- adicionado `--saint-delta-application`;
+- `functional` preserva o caminho de qualidade com `functional_call`;
+- `inplace` aplica delta no peso real, faz rollback e atualiza coordenadas
+  esparsas pelo gradiente do peso alvo;
+- merge/eval agora separa pico de load e pico de forward com delta aplicado.
+
+Comparacao:
+
+| delta application | val loss | train loss | peak CUDA GB | train CUDA GB | merge load GB | merge eval GB |
+|---|---:|---:|---:|---:|---:|---:|
+| functional | 7.448014 | 7.389300 | 11.785 | 5.970 | 5.870 | 8.084 |
+| inplace | 7.687493 | 7.981713 | 7.660 | 5.970 | 5.870 | 8.059 |
+
+Repeticao multiseed do baseline:
+
+| seed | val loss | train loss | peak CUDA GB | routing CUDA GB | train CUDA GB |
+|---:|---:|---:|---:|---:|---:|
+| 31 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 |
+| 32 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 |
+| 33 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 |
+
+Decisao:
+
+```text
+Fase 14 conclui com ressalva.
+```
+
+Baseline para a proxima fase:
+
+```text
+Qwen/Qwen2.5-3B
+gradient_sequential subset
+budget 16384
+delta_application functional
+bfloat16
+micro-batch 1
+```
+
+Ressalva:
+
+- LoRA ainda tem menor pico CUDA;
+- o caminho `inplace` reduz memoria, mas ainda nao preserva qualidade;
+- Fase 15 deve introduzir offload e reduzir materializacao densa antes de 14B.
 
 ## Fase 15 - Escala 14B
 

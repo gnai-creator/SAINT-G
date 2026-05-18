@@ -159,8 +159,15 @@ def _evaluate_sparse_delta(
     dtype = _model_dtype(torch, model_dtype)
     if dtype is not None:
         load_kwargs["dtype"] = dtype
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
     model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs).to(device)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
+    load_cuda_peak = (
+        int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
+    )
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
     _apply_sparse_delta(torch, model.state_dict(), payload, device)
     input_ids, attention_mask = _batch(
         tokenizer,
@@ -169,7 +176,15 @@ def _evaluate_sparse_delta(
         texts=validation_texts,
     )
     loss = float(_loss(model, input_ids, attention_mask).detach().cpu().item())
-    return {"merged_validation_loss": loss, "merged_perplexity": exp(min(loss, 20.0))}
+    eval_cuda_peak = (
+        int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
+    )
+    return {
+        "merged_validation_loss": loss,
+        "merged_perplexity": exp(min(loss, 20.0)),
+        "merge_load_cuda_peak_bytes": load_cuda_peak,
+        "merge_eval_cuda_peak_bytes": eval_cuda_peak,
+    }
 
 
 def _sparse_payload_from_run(run_dir: Path, matrix_names: set[str] | None):
@@ -196,6 +211,7 @@ def _saint_validation_row(
     routing_batch_size: int | None = None,
     model_dtype: str | None = None,
     max_cuda_gb: float | None = None,
+    delta_application: str = "functional",
 ) -> dict[str, Any]:
     from saint.runtime import resume_runtime, train_runtime
 
@@ -224,22 +240,24 @@ def _saint_validation_row(
             "routing_batch_size": routing_batch_size or batch_size,
             "model_dtype": model_dtype,
             "max_cuda_gb": max_cuda_gb,
+            "delta_application": delta_application,
         },
     )
     result = train_runtime(config)
     resumed = resume_runtime(run_dir)
     target_matrices = set(result["metadata"].get("target_matrices", [])) or None
     sparse_payload = _sparse_payload_from_run(run_dir, target_matrices)
-    merged_eval, merge_cuda_peak = _cuda_peak_for(
-        result["metadata"]["device"],
-        lambda: _evaluate_sparse_delta(
-            model_path,
-            sparse_payload,
-            validation_texts=validation_texts,
-            device_name=result["metadata"]["device"],
-            max_length=max_length,
-            model_dtype=model_dtype,
-        ),
+    merged_eval = _evaluate_sparse_delta(
+        model_path,
+        sparse_payload,
+        validation_texts=validation_texts,
+        device_name=result["metadata"]["device"],
+        max_length=max_length,
+        model_dtype=model_dtype,
+    )
+    merge_cuda_peak = max(
+        merged_eval.get("merge_load_cuda_peak_bytes", 0),
+        merged_eval.get("merge_eval_cuda_peak_bytes", 0),
     )
     initial = result["metadata"]["initial_loss"]
     final = result["train_loss"]
@@ -250,6 +268,8 @@ def _saint_validation_row(
         "train_cuda_peak_bytes": result["metadata"].get("train_cuda_peak_bytes", 0),
         "checkpoint_file_bytes": artifact_bytes,
         "merge_cuda_peak_bytes": merge_cuda_peak,
+        "merge_load_cuda_peak_bytes": merged_eval.get("merge_load_cuda_peak_bytes", 0),
+        "merge_eval_cuda_peak_bytes": merged_eval.get("merge_eval_cuda_peak_bytes", 0),
     }
     return {
         "method": "saint",
@@ -273,8 +293,11 @@ def _saint_validation_row(
         "train_cuda_peak_bytes": stage_memory["train_cuda_peak_bytes"],
         "checkpoint_file_bytes": stage_memory["checkpoint_file_bytes"],
         "merge_cuda_peak_bytes": stage_memory["merge_cuda_peak_bytes"],
+        "merge_load_cuda_peak_bytes": stage_memory["merge_load_cuda_peak_bytes"],
+        "merge_eval_cuda_peak_bytes": stage_memory["merge_eval_cuda_peak_bytes"],
         "stage_memory": stage_memory,
         "delta_payload_format": result["metadata"].get("delta_payload_format"),
+        "delta_application": result["metadata"].get("delta_application"),
         "resume_quality_delta": abs(resumed["train_loss"] - final),
         "device": result["metadata"]["device"],
         "merged_delta_payload": sparse_payload,

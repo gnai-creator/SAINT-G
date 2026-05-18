@@ -700,14 +700,107 @@ Motivo:
 - o merge/eval ainda carrega o modelo para avaliar o delta aplicado, gerando pico
   CUDA relevante.
 
-## Proximo Marco
+## Marco 9 - Reducao do Pico Funcional
 
-Marco 9 deve reduzir o pico do forward funcional:
+Status: **concluido**.
 
-- evitar criar `zeros_like` completo para cada delta esparso durante cada loss;
-- testar aplicacao temporaria in-place do delta antes do forward e rollback
-  depois do backward;
-- comparar caminho funcional atual contra caminho in-place controlado;
-- medir memoria de merge/eval separada de load;
-- repetir `gradient_sequential` subset com seeds 31, 32 e 33;
-- decidir se Fase 14 fecha com `gradient_sequential` subset como baseline 3B.
+### Mudancas
+
+- adicionado `--saint-delta-application`;
+- `functional` preserva o caminho anterior com `functional_call`;
+- `inplace` aplica o delta no peso real antes do forward, faz rollback depois do
+  backward e atualiza apenas os valores esparsos selecionados;
+- memoria de merge/eval agora separa:
+  - pico de load do modelo;
+  - pico do forward com delta aplicado;
+- o caminho in-place evita `zeros_like` completo por loss, mas usa gradiente do
+  peso alvo para atualizar as coordenadas esparsas.
+
+### Functional vs Inplace
+
+Configuracao:
+
+```text
+model: Qwen/Qwen2.5-3B
+seed: 31
+budget: 16384
+routing_method: gradient_sequential
+routing_max_length: 8
+routing_batch_size: 1
+dtype: bfloat16
+max_cuda_gb: 22
+```
+
+Resultado:
+
+| delta application | val loss | train loss | peak CUDA GB | train CUDA GB | merge load GB | merge eval GB | tokens/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| functional | 7.448014 | 7.389300 | 11.785 | 5.970 | 5.870 | 8.084 | 97.337 |
+| inplace | 7.687493 | 7.981713 | 7.660 | 5.970 | 5.870 | 8.059 | 97.759 |
+
+Conclusao:
+
+- o modo `inplace` reduziu o pico total do caminho SAINT;
+- a qualidade caiu muito porque o update virou um SGD esparso manual;
+- o modo `functional` continua sendo o baseline de qualidade para 3B;
+- o modo `inplace` fica como caminho experimental para uma futura versao com
+  otimizador esparso melhor.
+
+### Repeticao Multiseed
+
+Configuracao:
+
+```text
+seeds: 31, 32, 33
+budget: 16384
+routing_method: gradient_sequential
+delta_application: functional
+dtype: bfloat16
+```
+
+Resultado:
+
+| seed | val loss | train loss | peak CUDA GB | routing CUDA GB | train CUDA GB | merge load GB | merge eval GB |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 31 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 | 5.870 | 8.084 |
+| 32 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 | 5.870 | 8.084 |
+| 33 | 7.448014 | 7.389300 | 11.785 | 5.956 | 5.970 | 5.870 | 8.084 |
+
+Agregado:
+
+| metodo | count | mean val loss | best val loss | mean gain/param |
+|---|---:|---:|---:|---:|
+| SAINT gradient_sequential functional | 3 | 7.448014 | 7.448014 | 0.00003785 |
+
+### Decisao da Fase 14
+
+```text
+Fase 14 conclui com ressalva.
+```
+
+SAINT 3B cumpriu o criterio minimo:
+
+- carrega modelo 3B local em CUDA;
+- treina delta esparso com micro-batch 1;
+- usa `bfloat16` de forma estavel;
+- salva checkpoint esparso por coordenada;
+- valida resume e merge/eval;
+- vence LoRA rank 1/2 em validation loss no grid do Marco 8;
+- `gradient_sequential` subset venceu com margem maior e repetiu em seeds
+  31, 32 e 33.
+
+Ressalva:
+
+- LoRA ainda tem menor pico CUDA;
+- `functional_call` ainda materializa tensores densos temporarios;
+- o caminho `inplace` reduz memoria, mas ainda nao preserva qualidade.
+
+## Proxima Fase
+
+Fase 15 deve iniciar escala 14B com cautela:
+
+- manter `gradient_sequential` subset funcional como baseline SAINT 3B;
+- investigar otimizador esparso para o caminho `inplace`;
+- adicionar offload/CPU para load e merge/eval;
+- evitar materializacao densa no forward;
+- comparar contra LoRA pequeno antes de qualquer salto para 70B.

@@ -128,6 +128,7 @@ def run_hf_phase13_grid(
     saint_routing_batch_size: int | None = None,
     model_dtype: str | None = None,
     max_cuda_gb: float | None = None,
+    saint_delta_application: str = "functional",
     prompts: tuple[str, ...] = ("SAINT", "Checkpoint", "LoRA"),
 ) -> dict[str, Any]:
     root = Path(run_dir)
@@ -163,6 +164,7 @@ def run_hf_phase13_grid(
                 routing_batch_size=saint_routing_batch_size,
                 model_dtype=model_dtype,
                 max_cuda_gb=max_cuda_gb,
+                delta_application=saint_delta_application,
             )
             delta_payload = row.pop("merged_delta_payload")
             run_path = combo / f"saint_budget_{budget}_seed_{seed}"
