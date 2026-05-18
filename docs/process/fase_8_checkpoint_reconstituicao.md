@@ -20,7 +20,7 @@ modelo base + delta_payload -> merged_weights
 - `resume` valida que o payload de delta existe quando esperado;
 - `merge` carrega `config.json`, recria o modelo base e aplica os deltas;
 - `merged.json` passa a conter `merged_weights`.
-- `pyproject.toml` declara o entrypoint `saint`;
+- `pyproject.toml` declara o entrypoint `drm-saint-g`;
 - o runtime ganhou um adapter inicial `drm_transformer` para inspecionar matrizes
   2D de checkpoints e servir pesos-base para reconstituicao.
 
@@ -29,7 +29,7 @@ modelo base + delta_payload -> merged_weights
 ```text
 saint/checkpoints/manager.py
 saint/runtime/runner.py
-saint/transformer/saint_adapter.py
+saint/transformer/DRM-SAINT-G_adapter.py
 saint/adapters/drm_transformer.py
 pyproject.toml
 tests/test_runtime_phase7.py
@@ -46,9 +46,9 @@ python -m saint.cli merge --run runs/runtime_smoke
 Quando o pacote estiver instalado, os comandos equivalentes sao:
 
 ```bash
-saint train --config configs/runtime_smoke.json
-saint resume --run runs/runtime_smoke
-saint merge --run runs/runtime_smoke
+drm-saint-g train --config configs/runtime_smoke.json
+drm-saint-g resume --run runs/runtime_smoke
+drm-saint-g merge --run runs/runtime_smoke
 ```
 
 ## Artefatos

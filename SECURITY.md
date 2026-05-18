@@ -1,6 +1,6 @@
 # Security Policy
 
-SAINT is experimental research software. It is not production-hardened and
+DRM-SAINT-G is experimental research software. It is not production-hardened and
 should not be used to train or serve sensitive models without additional review.
 
 ## Supported Versions

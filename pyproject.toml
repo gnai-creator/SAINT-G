@@ -1,7 +1,7 @@
 [project]
-name = "saint-training"
+name = "drm-saint-g-training"
 version = "0.1.0"
-description = "Simple AI Node Training experimental runtime"
+description = "DRM-SAINT-G experimental runtime for DRM grafting with DRM-SAINT-G-Phi"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -16,6 +16,7 @@ hf = [
 
 [project.scripts]
 saint = "saint.cli:main"
+drm-saint-g = "saint.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["saint*"]

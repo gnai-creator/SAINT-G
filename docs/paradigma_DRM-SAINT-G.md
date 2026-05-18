@@ -1,6 +1,6 @@
-# Paradigma SAINT
+# Paradigma DRM-SAINT-G
 
-SAINT significa **Simple AI Node Training**. Neste documento, SAINT e descrito como um paradigma experimental de treinamento parcial para modelos grandes, pensado para maquinas com pouca VRAM em relacao ao tamanho total do modelo.
+DRM-SAINT-G significa **DRM por Enxerto com DRM-SAINT-G-Phi**. Neste documento, DRM-SAINT-G e descrito como um paradigma experimental de treinamento parcial para modelos grandes, pensado para maquinas com pouca VRAM em relacao ao tamanho total do modelo.
 
 A ideia central nao e treinar todos os parametros de uma LLM gigante ao mesmo tempo. A ideia e **quebrar o treinamento em partes pequenas, treinar essas partes sob um orcamento fixo de memoria e depois recompor o modelo final**.
 
@@ -18,7 +18,7 @@ O paradigma tradicional de treino de LLMs exige que muitos componentes estejam a
 
 Para modelos grandes, isso torna o treino completo inviavel em GPUs domesticas.
 
-SAINT nasce da seguinte pergunta:
+DRM-SAINT-G nasce da seguinte pergunta:
 
 ```text
 E se o modelo pudesse ser treinado em partes muito pequenas,
@@ -31,10 +31,10 @@ e depois essas partes fossem juntadas em um modelo final?
 O usuario define um orcamento de VRAM:
 
 ```bash
-SAINT train --vram-gb 12 --model 70b
+drm-saint-g train --vram-gb 12 --model 70b
 ```
 
-SAINT nao tenta colocar o treinamento completo dentro desse limite.
+DRM-SAINT-G nao tenta colocar o treinamento completo dentro desse limite.
 
 Em vez disso, ele cria um plano:
 
@@ -61,7 +61,7 @@ Uma unidade treinavel pode ser:
 - uma atualizacao residual;
 - uma pequena funcao geradora de pesos.
 
-No SAINT, uma matriz grande pode ser vista como uma grade de blocos menores.
+No DRM-SAINT-G, uma matriz grande pode ser vista como uma grade de blocos menores.
 
 Exemplo:
 
@@ -117,7 +117,7 @@ Se for dividida em blocos `2x2`, ainda tera:
 4.194.304 blocos * 4 numeros = 16.777.216 numeros
 ```
 
-Portanto, SAINT precisa fazer algo alem de dividir.
+Portanto, DRM-SAINT-G precisa fazer algo alem de dividir.
 
 Possibilidades:
 
@@ -129,7 +129,7 @@ Possibilidades:
 - aplicar blocos como delta sobre pesos base;
 - usar offload para o restante do modelo.
 
-Portanto, o SAINT nao deve ser entendido como:
+Portanto, o DRM-SAINT-G nao deve ser entendido como:
 
 ```text
 dividir tudo em blocos 2x2
@@ -152,7 +152,7 @@ recompor o delta final
 
 ## 5. Representacao por Delta
 
-Em vez de substituir a matriz original, SAINT pode aprender uma atualizacao:
+Em vez de substituir a matriz original, DRM-SAINT-G pode aprender uma atualizacao:
 
 ```text
 W_final = W_base + DeltaW
@@ -164,7 +164,7 @@ Onde:
 - `DeltaW` e uma atualizacao treinada em partes;
 - `W_final` e a matriz efetiva usada no modelo.
 
-O treinamento SAINT pode focar apenas em `DeltaW`.
+O treinamento DRM-SAINT-G pode focar apenas em `DeltaW`.
 
 Isso reduz o custo porque o modelo base nao precisa ter todos os parametros atualizados.
 
@@ -186,7 +186,7 @@ Cada `Dij` e um bloco:
 [z w]
 ```
 
-Mas SAINT pode escolher diferentes formas de representar esse bloco.
+Mas DRM-SAINT-G pode escolher diferentes formas de representar esse bloco.
 
 ### 6.1 Bloco Completo
 
@@ -270,7 +270,7 @@ Exemplo:
 D12 ~= D98 ~= D301
 ```
 
-Se varios blocos forem iguais, parecidos ou pertencerem ao mesmo padrao, SAINT pode representar todos por uma unica entrada compartilhada:
+Se varios blocos forem iguais, parecidos ou pertencerem ao mesmo padrao, DRM-SAINT-G pode representar todos por uma unica entrada compartilhada:
 
 ```text
 D12  = escala_12  * codebook[k]
@@ -278,7 +278,7 @@ D98  = escala_98  * codebook[k]
 D301 = escala_301 * codebook[k]
 ```
 
-Assim, em vez de treinar tres blocos separados, SAINT treina:
+Assim, em vez de treinar tres blocos separados, DRM-SAINT-G treina:
 
 - um bloco base compartilhado;
 - pequenas escalas ou ajustes por posicao.
@@ -297,7 +297,7 @@ calcular bloco A na posicao 2
 calcular bloco A na posicao 3
 ```
 
-SAINT pode executar:
+DRM-SAINT-G pode executar:
 
 ```text
 calcular bloco A uma vez
@@ -317,7 +317,7 @@ matriz grande
   -> espalhar resultado para as posicoes correspondentes
 ```
 
-Isso pode reduzir custo quando ha repeticao real ou quando SAINT forca repeticao por parametrizacao.
+Isso pode reduzir custo quando ha repeticao real ou quando DRM-SAINT-G forca repeticao por parametrizacao.
 
 ### 6.9 Assinatura de Bloco
 
@@ -353,7 +353,7 @@ signature(Dij) = cluster(norm, trace, det, eigenvalues)
 
 O codebook pode ser treinavel.
 
-Nesse caso, SAINT nao treina cada bloco individualmente. Ele treina um conjunto pequeno de blocos prototipo:
+Nesse caso, DRM-SAINT-G nao treina cada bloco individualmente. Ele treina um conjunto pequeno de blocos prototipo:
 
 ```text
 codebook[0], codebook[1], ..., codebook[K-1]
@@ -373,7 +373,7 @@ Dij = soma_k alpha_ijk * codebook[k]
 
 Isso permite que milhoes de blocos sejam representados por poucos padroes compartilhados.
 
-Essa e uma das ideias mais promissoras do SAINT:
+Essa e uma das ideias mais promissoras do DRM-SAINT-G:
 
 ```text
 nao treinar todos os blocos;
@@ -384,7 +384,7 @@ treinar os padroes que muitos blocos reutilizam.
 
 O codebook nao precisa ter apenas blocos `2x2`.
 
-SAINT pode usar um dicionario escalavel de matrizes pequenas:
+DRM-SAINT-G pode usar um dicionario escalavel de matrizes pequenas:
 
 ```text
 codebook_2x2
@@ -433,7 +433,7 @@ Blocos menores:
 - aumentam numero de blocos;
 - podem gerar overhead alto.
 
-SAINT pode escolher o tamanho por criterio de eficiencia:
+DRM-SAINT-G pode escolher o tamanho por criterio de eficiencia:
 
 ```text
 score = ganho_estimado_de_loss / custo_de_memoria
@@ -497,7 +497,7 @@ mlp.up.codebook_8x8
 mlp.down.codebook_4x4
 ```
 
-Isso permite que SAINT aprenda padroes diferentes para:
+Isso permite que DRM-SAINT-G aprenda padroes diferentes para:
 
 - attention;
 - MLP;
@@ -537,7 +537,7 @@ Isso permite um delta grosseiro mais barato, com refinamentos pequenos apenas on
 
 ### 6.16 Separar Reconstrucao de Treino
 
-SAINT tem dois problemas diferentes:
+DRM-SAINT-G tem dois problemas diferentes:
 
 ```text
 A. representar ou reconstruir bem uma matriz grande
@@ -546,7 +546,7 @@ B. treinar essa representacao usando a loss global da LLM
 
 Esses problemas nao devem ser confundidos.
 
-Antes de testar SAINT em uma LLM grande, e preciso responder:
+Antes de testar DRM-SAINT-G em uma LLM grande, e preciso responder:
 
 ```text
 O codebook multi-escala consegue representar matrizes grandes
@@ -562,11 +562,11 @@ do modelo inteiro?
 
 Se a resposta para a primeira pergunta for ruim, a segunda provavelmente tambem sera.
 
-Portanto, SAINT deve validar primeiro a compressao/reconstrucao de matrizes isoladas e so depois validar treino em modelos.
+Portanto, DRM-SAINT-G deve validar primeiro a compressao/reconstrucao de matrizes isoladas e so depois validar treino em modelos.
 
 ### 6.17 Roteador de Blocos
 
-SAINT pode ter um roteador que decide como cada regiao da matriz sera representada.
+DRM-SAINT-G pode ter um roteador que decide como cada regiao da matriz sera representada.
 
 Para cada regiao, o roteador escolhe:
 
@@ -598,7 +598,7 @@ Mas uma versao heuristica ja seria suficiente para testar o paradigma.
 
 ## 7. Treino Parcial
 
-O SAINT treina apenas uma parte por vez.
+O DRM-SAINT-G treina apenas uma parte por vez.
 
 Exemplo:
 
@@ -622,7 +622,7 @@ O otimizador guarda estado apenas da parte ativa.
 
 ## 7.1 Mapa de Sensibilidade
 
-Antes de treinar blocos, SAINT deve descobrir quais partes merecem treino.
+Antes de treinar blocos, DRM-SAINT-G deve descobrir quais partes merecem treino.
 
 Sem isso, o sistema pode gastar tempo atualizando regioes que quase nao afetam a loss.
 
@@ -657,7 +657,7 @@ Metricas possiveis:
 - erro por camada;
 - conflito com deltas anteriores.
 
-O mapa de sensibilidade transforma SAINT de:
+O mapa de sensibilidade transforma DRM-SAINT-G de:
 
 ```text
 treinar em pedacos
@@ -671,7 +671,7 @@ treinar os pedacos certos
 
 ## 7.2 Mascara Esparsa de Treino
 
-SAINT deve evitar ativar todos os blocos.
+DRM-SAINT-G deve evitar ativar todos os blocos.
 
 Depois do mapa de sensibilidade, ele cria uma mascara:
 
@@ -718,7 +718,7 @@ fase 4: refinar para 16x16
 fase 5: refinar para 2x2 apenas onde vale a pena
 ```
 
-Assim, SAINT nao procura detalhes finos no modelo inteiro.
+Assim, DRM-SAINT-G nao procura detalhes finos no modelo inteiro.
 
 Ele primeiro localiza regioes promissoras e so depois aplica blocos pequenos.
 
@@ -726,7 +726,7 @@ Ele primeiro localiza regioes promissoras e so depois aplica blocos pequenos.
 
 Este e um ponto essencial.
 
-Mesmo que SAINT treine uma parte pequena, a qualidade dessa parte deve ser medida pela loss do modelo completo.
+Mesmo que DRM-SAINT-G treine uma parte pequena, a qualidade dessa parte deve ser medida pela loss do modelo completo.
 
 Fluxo:
 
@@ -761,11 +761,11 @@ Se treinarmos partes separadas sem revisao, pode acontecer:
 - a loss melhora localmente mas piora globalmente;
 - ocorre esquecimento de fases anteriores.
 
-Por isso SAINT precisa de ciclos de consolidacao.
+Por isso DRM-SAINT-G precisa de ciclos de consolidacao.
 
 ## 10. Ciclos de Consolidacao
 
-Depois de treinar varias partes, SAINT executa uma fase curta onde revisita partes importantes.
+Depois de treinar varias partes, DRM-SAINT-G executa uma fase curta onde revisita partes importantes.
 
 Exemplo:
 
@@ -785,7 +785,7 @@ Isso tenta reduzir conflito entre atualizacoes.
 
 ## 11. Scheduler de Partes
 
-SAINT precisa decidir a ordem de treino.
+DRM-SAINT-G precisa decidir a ordem de treino.
 
 Estrategias possiveis:
 
@@ -831,7 +831,7 @@ fase media: submatrizes
 fase final: blocos pequenos ou multi-escala
 ```
 
-No modo multi-escala, SAINT pode testar varios tamanhos:
+No modo multi-escala, DRM-SAINT-G pode testar varios tamanhos:
 
 ```text
 64x64 -> 16x16 -> 8x8 -> 4x4 -> 2x2
@@ -851,13 +851,13 @@ padrao B aparece em 2.000 blocos
 padrao C aparece em 30 blocos
 ```
 
-SAINT pode treinar primeiro o padrao A porque uma atualizacao nele afeta muitas posicoes ao mesmo tempo.
+DRM-SAINT-G pode treinar primeiro o padrao A porque uma atualizacao nele afeta muitas posicoes ao mesmo tempo.
 
 Essa estrategia e especialmente importante para o codebook.
 
 ### 11.7 Ordem por Ganho por Byte
 
-SAINT pode ordenar partes por eficiencia:
+DRM-SAINT-G pode ordenar partes por eficiencia:
 
 ```text
 ganho_estimado_de_loss / bytes_de_memoria_treinavel
@@ -869,7 +869,7 @@ Uma parte so entra no treino se justificar o custo de memoria.
 
 ### 11.8 Ordem por Erro de Reconstrucao
 
-Quando uma regiao e aproximada por codebook, SAINT pode medir o erro de reconstrucao.
+Quando uma regiao e aproximada por codebook, DRM-SAINT-G pode medir o erro de reconstrucao.
 
 Regioes com erro alto podem ser refinadas:
 
@@ -883,7 +883,7 @@ Isso cria um scheduler adaptativo guiado por qualidade de representacao.
 
 ## 12. Orçamento de VRAM
 
-SAINT e guiado por memoria.
+DRM-SAINT-G e guiado por memoria.
 
 O usuario define:
 
@@ -891,7 +891,7 @@ O usuario define:
 vram_gb = 12
 ```
 
-SAINT calcula:
+DRM-SAINT-G calcula:
 
 - quantas partes podem estar ativas;
 - tamanho de micro-batch;
@@ -913,7 +913,7 @@ margem: 0.8 GB
 
 ## 12.1 Orcamento por Camada
 
-SAINT nao deve distribuir memoria de forma uniforme entre todas as camadas.
+DRM-SAINT-G nao deve distribuir memoria de forma uniforme entre todas as camadas.
 
 Nem toda camada, matriz ou submatriz tem a mesma importancia para uma tarefa.
 
@@ -968,7 +968,7 @@ fim:
   refinamento em blocos pequenos de alta sensibilidade
 ```
 
-SAINT pode realocar memoria quando perceber que uma regiao parou de melhorar.
+DRM-SAINT-G pode realocar memoria quando perceber que uma regiao parou de melhorar.
 
 Fluxo:
 
@@ -982,7 +982,7 @@ Fluxo:
 
 ## 13. Offload
 
-Para modelos grandes, SAINT precisa mover dados entre:
+Para modelos grandes, DRM-SAINT-G precisa mover dados entre:
 
 - GPU;
 - RAM;
@@ -1002,7 +1002,7 @@ Offload reduz VRAM, mas aumenta tempo.
 
 ## 13.1 Cache de Grupos de Blocos
 
-Quando varios blocos compartilham o mesmo padrao, SAINT pode manter um cache de resultados intermediarios.
+Quando varios blocos compartilham o mesmo padrao, DRM-SAINT-G pode manter um cache de resultados intermediarios.
 
 Exemplo:
 
@@ -1026,7 +1026,7 @@ Limitacao: isso so ajuda se houver repeticao real ou repeticao imposta pela para
 
 ## 14. Reconstituicao Final
 
-Ao final, SAINT combina:
+Ao final, DRM-SAINT-G combina:
 
 ```text
 modelo base
@@ -1077,7 +1077,7 @@ LoRA aprende uma atualizacao de baixo rank:
 DeltaW = A B
 ```
 
-SAINT pode aprender uma atualizacao por blocos:
+DRM-SAINT-G pode aprender uma atualizacao por blocos:
 
 ```text
 DeltaW = reconstruct(blocos_2x2)
@@ -1091,17 +1091,17 @@ DeltaW = LoRA + BlockDelta
 
 LoRA explora baixa dimensionalidade global.
 
-SAINT por blocos exploraria estrutura local da matriz.
+DRM-SAINT-G por blocos exploraria estrutura local da matriz.
 
 Essas tecnicas nao sao inimigas; podem ser combinadas.
 
-Com codebook, SAINT tambem se diferencia por explorar repeticao:
+Com codebook, DRM-SAINT-G tambem se diferencia por explorar repeticao:
 
 ```text
 LoRA:
   DeltaW = A B
 
-SAINT block-codebook:
+DRM-SAINT-G block-codebook:
   DeltaW[i, j] = escala_ij * codebook[id_ij]
 ```
 
@@ -1111,7 +1111,7 @@ LoRA pergunta:
 existe uma atualizacao global de baixo rank?
 ```
 
-SAINT pergunta:
+DRM-SAINT-G pergunta:
 
 ```text
 existem padroes locais reutilizaveis dentro das matrizes?
@@ -1129,7 +1129,7 @@ optimizer state global
 update global
 ```
 
-SAINT:
+DRM-SAINT-G:
 
 ```text
 parte pequena ativa
@@ -1142,7 +1142,7 @@ consolidacao posterior
 
 ## 17. Hipotese de Pesquisa
 
-A hipotese do SAINT e:
+A hipotese do DRM-SAINT-G e:
 
 ```text
 Uma LLM grande pode ser adaptada ou parcialmente treinada
@@ -1182,11 +1182,11 @@ Principais riscos:
 
 ## 19. Experimentos Necessarios
 
-Antes de tentar 70B, SAINT deve ser testado em modelos pequenos.
+Antes de tentar 70B, DRM-SAINT-G deve ser testado em modelos pequenos.
 
 ### Experimento 0 - Reconstrucao de Matriz
 
-Antes de treinar uma LLM, SAINT deve provar que consegue representar matrizes.
+Antes de treinar uma LLM, DRM-SAINT-G deve provar que consegue representar matrizes.
 
 Tarefa:
 
@@ -1302,7 +1302,7 @@ Objetivo:
 
 ## 20. Medidas de Sucesso
 
-SAINT deve ser comparado contra baselines.
+DRM-SAINT-G deve ser comparado contra baselines.
 
 Baselines:
 
@@ -1356,14 +1356,14 @@ Provavelmente viavel apenas como adaptacao parcial, com base quantizada, offload
 
 ## 22. Pergunta Principal
 
-A pergunta que SAINT precisa responder empiricamente:
+A pergunta que DRM-SAINT-G precisa responder empiricamente:
 
 ```text
 Atualizacoes locais, pequenas e recomponiveis conseguem produzir
 melhoria global suficiente para justificar o overhead?
 ```
 
-Se sim, SAINT pode virar um paradigma pratico para treino local limitado por VRAM.
+Se sim, DRM-SAINT-G pode virar um paradigma pratico para treino local limitado por VRAM.
 
 Se nao, ainda pode produzir componentes uteis:
 
@@ -1381,7 +1381,7 @@ Se nao, ainda pode produzir componentes uteis:
 
 ## 23. Resumo
 
-SAINT propoe:
+DRM-SAINT-G propoe:
 
 ```text
 modelo grande
@@ -1418,7 +1418,7 @@ recomposicao final
 A formulacao mais completa do paradigma fica:
 
 ```text
-SAINT = sparse multi-scale block-codebook delta training
+DRM-SAINT-G = sparse multi-scale block-codebook delta training
 ```
 
 Em portugues:

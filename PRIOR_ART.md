@@ -1,12 +1,12 @@
 # Prior Art
 
-SAINT is an experimental training paradigm focused on sparse multi-scale
+DRM-SAINT-G is an experimental training paradigm focused on sparse multi-scale
 block-codebook delta training. It should be evaluated against existing methods
 with discipline and without overstating novelty.
 
 ## Related Areas
 
-SAINT overlaps with ideas from:
+DRM-SAINT-G overlaps with ideas from:
 
 - parameter-efficient fine-tuning;
 - LoRA and low-rank adaptation;
@@ -24,7 +24,7 @@ SAINT overlaps with ideas from:
 
 ## Important Baselines
 
-SAINT experiments should compare against:
+DRM-SAINT-G experiments should compare against:
 
 - full fine-tuning;
 - frozen baseline;
@@ -39,12 +39,12 @@ SAINT experiments should compare against:
 
 ## Known Risk
 
-Many SAINT ideas may be rediscovering or combining existing techniques. The
+Many DRM-SAINT-G ideas may be rediscovering or combining existing techniques. The
 project should treat novelty as a hypothesis, not an assumption.
 
-## Current SAINT Distinction
+## Current DRM-SAINT-G Distinction
 
-The working SAINT hypothesis is not merely "compress a matrix." It is:
+The working DRM-SAINT-G hypothesis is not merely "compress a matrix." It is:
 
 ```text
 train sparse deltas through reusable multi-scale block dictionaries, route
@@ -55,5 +55,5 @@ from compact trainable components.
 ## How to Use This Document
 
 When a new experiment is added, update this file if it becomes clearly related
-to known prior work. When SAINT loses to an existing method, keep that result in
+to known prior work. When DRM-SAINT-G loses to an existing method, keep that result in
 the record.

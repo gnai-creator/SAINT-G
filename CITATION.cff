@@ -1,11 +1,11 @@
 cff-version: 1.2.0
-message: "If you use SAINT in research or experiments, please cite this repository."
-title: "SAINT: Simple AI Node Training"
+message: "If you use DRM-SAINT-G in research or experiments, please cite this repository."
+title: "DRM-SAINT-G: DRM por Enxerto com DRM-SAINT-G-Phi"
 type: software
 authors:
-  - name: "SAINT Contributors"
-repository-code: "https://github.com/gnai-creator/SAINT"
-abstract: "SAINT is an experimental framework for sparse multi-scale block-codebook delta training."
+  - name: "DRM-SAINT-G Contributors"
+repository-code: "https://github.com/gnai-creator/DRM-SAINT-G"
+abstract: "DRM-SAINT-G is an experimental framework for sparse multi-scale block-codebook delta training, DRM-SAINT-G-Phi adapters, and progressive DRM grafting."
 keywords:
   - artificial intelligence
   - model training

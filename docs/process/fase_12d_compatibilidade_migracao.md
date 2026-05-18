@@ -23,14 +23,14 @@ versoes futuras incompativeis.
 Exemplo:
 
 ```text
-format: saint_checkpoint
+format: DRM-SAINT-G_checkpoint
 format_version: 2
 compatibility:
   min_reader_version: 1
   payload_format_version: 1
   writer_version: 2
 files:
-  - path: deltas.saintbin
+  - path: deltas.DRM-SAINT-Gbin
     payload: delta
     sha256: ...
 ```
@@ -63,7 +63,7 @@ migrated_from:
 Fase 12D concluida.
 ```
 
-SAINT agora possui uma politica explicita de compatibilidade para manifestos de
+DRM-SAINT-G agora possui uma politica explicita de compatibilidade para manifestos de
 checkpoint e um caminho testado de migracao `v1 -> v2`.
 
 ## Proxima Subfase

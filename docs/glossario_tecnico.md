@@ -1,13 +1,13 @@
-# Glossario Tecnico SAINT
+# Glossario Tecnico DRM-SAINT-G
 
-Este glossario define os termos usados no projeto SAINT.
+Este glossario define os termos usados no projeto DRM-SAINT-G.
 
-SAINT significa **Simple AI Node Training**.
+DRM-SAINT-G significa **DRM por Enxerto com DRM-SAINT-G-Phi**.
 
 Definicao curta:
 
 ```text
-SAINT = sparse multi-scale block-codebook delta training
+DRM-SAINT-G = sparse multi-scale block-codebook delta training
 ```
 
 Em portugues:
@@ -18,14 +18,14 @@ treino de deltas esparsos por dicionario multi-escala de blocos
 
 ## Adapter
 
-Camada de integracao entre o runtime SAINT e uma arquitetura de modelo especifica.
+Camada de integracao entre o runtime DRM-SAINT-G e uma arquitetura de modelo especifica.
 
 Responsabilidades:
 
 - carregar o modelo;
 - listar camadas e matrizes;
 - congelar parametros;
-- anexar deltas SAINT;
+- anexar deltas DRM-SAINT-G;
 - executar forward;
 - salvar e carregar deltas.
 
@@ -68,13 +68,13 @@ Sao necessarios para o backward tradicional e podem consumir muita memoria.
 
 Etapa que calcula gradientes a partir da loss.
 
-No SAINT, o forward pode envolver o modelo inteiro, mas o backward deve atualizar apenas as partes ativas.
+No DRM-SAINT-G, o forward pode envolver o modelo inteiro, mas o backward deve atualizar apenas as partes ativas.
 
 ## Baseline
 
 Metodo de comparacao.
 
-SAINT deve ser comparado contra:
+DRM-SAINT-G deve ser comparado contra:
 
 - treino completo em modelos pequenos;
 - LoRA;
@@ -135,7 +135,7 @@ acumular gradientes no mesmo prototipo
 
 ## Checkpoint Composto
 
-Checkpoint que salva o modelo base separado dos deltas SAINT.
+Checkpoint que salva o modelo base separado dos deltas DRM-SAINT-G.
 
 Vantagem:
 
@@ -157,7 +157,7 @@ W_final = W_base + DeltaW
 
 Dicionario de blocos prototipo.
 
-Em vez de treinar cada bloco separadamente, SAINT pode treinar prototipos reutilizaveis.
+Em vez de treinar cada bloco separadamente, DRM-SAINT-G pode treinar prototipos reutilizaveis.
 
 Exemplo:
 
@@ -201,7 +201,7 @@ Forma:
 W_eff = W_base + DeltaW
 ```
 
-No SAINT, `DeltaW` e o principal objeto treinavel.
+No DRM-SAINT-G, `DeltaW` e o principal objeto treinavel.
 
 ## Delta Esparso
 
@@ -246,7 +246,7 @@ Pode ser usada para escolher partes importantes.
 
 Etapa em que o modelo calcula logits e loss.
 
-No SAINT, o forward deve refletir o modelo inteiro com deltas ativos.
+No DRM-SAINT-G, o forward deve refletir o modelo inteiro com deltas ativos.
 
 ## Ganho por Byte
 
@@ -264,7 +264,7 @@ Usada para priorizar partes que justificam o custo de memoria.
 
 Gradiente calculado apenas para a parte ativa.
 
-No SAINT:
+No DRM-SAINT-G:
 
 ```text
 loss global
@@ -287,7 +287,7 @@ Forma:
 DeltaW = A B
 ```
 
-SAINT deve ser comparado contra LoRA.
+DRM-SAINT-G deve ser comparado contra LoRA.
 
 ## Loss Global
 
@@ -447,7 +447,7 @@ Pode ser medida por:
 
 ## Sparse Multi-Scale Block-Codebook Delta Training
 
-Nome tecnico do paradigma SAINT.
+Nome tecnico do paradigma DRM-SAINT-G.
 
 Significa:
 
@@ -466,11 +466,11 @@ LLMs treinam sequencias de tokens.
 
 Treino onde apenas uma parte dos parametros recebe gradiente.
 
-No SAINT, o treino parcial deve ser guiado por loss global.
+No DRM-SAINT-G, o treino parcial deve ser guiado por loss global.
 
 ## VRAM
 
 Memoria da GPU.
 
-SAINT usa VRAM como restricao central do plano de treino.
+DRM-SAINT-G usa VRAM como restricao central do plano de treino.
 

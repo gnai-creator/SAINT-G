@@ -5,7 +5,7 @@ Status: **concluida**.
 ## Objetivo
 
 Permitir carregar e fundir apenas um subconjunto de matrizes de um checkpoint
-SAINT shardado, evitando materializar todo o payload quando o alvo for parcial.
+DRM-SAINT-G shardado, evitando materializar todo o payload quando o alvo for parcial.
 
 ## Implementado
 
@@ -14,7 +14,7 @@ SAINT shardado, evitando materializar todo o payload quando o alvo for parcial.
 - leitura parcial dentro de um payload binario;
 - `require_delta_payload(..., matrix_names=...)`;
 - `merge_runtime(..., matrix_names=...)`;
-- CLI `saint merge --matrix <nome>`;
+- CLI `drm-saint-g merge --matrix <nome>`;
 - validacao de erro para matriz inexistente;
 - testes para leitura parcial e merge parcial.
 

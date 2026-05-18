@@ -1,13 +1,13 @@
-# Hipoteses de Pesquisa SAINT
+# Hipoteses de Pesquisa DRM-SAINT-G
 
-Este documento define as hipoteses que o SAINT precisa testar.
+Este documento define as hipoteses que o DRM-SAINT-G precisa testar.
 
-SAINT significa **Simple AI Node Training**.
+DRM-SAINT-G significa **DRM por Enxerto com DRM-SAINT-G-Phi**.
 
 Definicao:
 
 ```text
-SAINT = sparse multi-scale block-codebook delta training
+DRM-SAINT-G = sparse multi-scale block-codebook delta training
 ```
 
 Em portugues:
@@ -69,7 +69,7 @@ Comparar contra:
 
 Mesmo que blocos exatamente iguais sejam raros, blocos parecidos podem ser agrupados de forma util.
 
-SAINT espera encontrar ou induzir padroes reutilizaveis.
+DRM-SAINT-G espera encontrar ou induzir padroes reutilizaveis.
 
 Perguntas:
 
@@ -118,7 +118,7 @@ Metodos candidatos:
 - erro de reconstrucao;
 - ganho por byte.
 
-Esta hipotese e essencial. Sem ela, SAINT pode gastar computacao em blocos irrelevantes.
+Esta hipotese e essencial. Sem ela, DRM-SAINT-G pode gastar computacao em blocos irrelevantes.
 
 ## 6. Hipotese do Roteador
 
@@ -189,7 +189,7 @@ Sem consolidacao, o modelo pode melhorar localmente e piorar globalmente.
 
 ## 10. Hipotese de Checkpoint Pequeno
 
-Deltas SAINT podem ser muito menores que checkpoints completos.
+Deltas DRM-SAINT-G podem ser muito menores que checkpoints completos.
 
 Hipotese:
 
@@ -224,7 +224,7 @@ o overhead de agrupamento pode ser maior que o ganho.
 
 ## 12. Hipotese de Escala
 
-Se SAINT funcionar em matriz isolada, camada linear e mini-transformer, pode ser escalado gradualmente.
+Se DRM-SAINT-G funcionar em matriz isolada, camada linear e mini-transformer, pode ser escalado gradualmente.
 
 Escala planejada:
 
@@ -247,24 +247,24 @@ mesmo que o tempo aumente por offload e roteamento.
 
 ## 13. Hipotese Contra LoRA
 
-SAINT nao precisa vencer LoRA em tudo.
+DRM-SAINT-G nao precisa vencer LoRA em tudo.
 
 Hipotese realista:
 
 ```text
-SAINT pode vencer ou complementar LoRA em regimes especificos:
+DRM-SAINT-G pode vencer ou complementar LoRA em regimes especificos:
 - menor checkpoint;
 - melhor ganho por byte;
 - melhor adaptacao local;
 - maior reutilizacao estrutural;
-- combinacao SAINT + LoRA.
+- combinacao DRM-SAINT-G + LoRA.
 ```
 
-Se SAINT sempre perder para LoRA/QLoRA em qualidade, memoria e tempo, o paradigma deve ser reavaliado.
+Se DRM-SAINT-G sempre perder para LoRA/QLoRA em qualidade, memoria e tempo, o paradigma deve ser reavaliado.
 
 ## 14. Hipoteses Nulas
 
-SAINT pode falhar se:
+DRM-SAINT-G pode falhar se:
 
 - matrizes reais nao tiverem padroes reutilizaveis suficientes;
 - codebook multi-escala nao comprimir bem;
@@ -296,7 +296,7 @@ As hipoteses devem ser testadas nesta ordem:
 
 ## 16. Resultado Esperado
 
-SAINT sera promissor se as hipoteses mostrarem que:
+DRM-SAINT-G sera promissor se as hipoteses mostrarem que:
 
 - deltas esparsos aprendem algo util;
 - codebooks reduzem memoria ou checkpoint;
@@ -305,5 +305,5 @@ SAINT sera promissor se as hipoteses mostrarem que:
 - consolidacao reduz conflito;
 - a qualidade fica competitiva contra baselines.
 
-SAINT deve ser descartado ou reposicionado se esses pontos nao aparecerem em escala pequena.
+DRM-SAINT-G deve ser descartado ou reposicionado se esses pontos nao aparecerem em escala pequena.
 

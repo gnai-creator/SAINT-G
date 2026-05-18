@@ -2,7 +2,7 @@
 
 Status: **concluida**.
 
-Esta fase transforma checkpoints SAINT em artefatos compactos, versionados e
+Esta fase transforma checkpoints DRM-SAINT-G em artefatos compactos, versionados e
 verificaveis.
 
 ## Objetivo
@@ -21,8 +21,8 @@ O runtime grava:
 runs/<exp>/
   checkpoint.json
   metrics.json
-  deltas.saintbin
-  optimizer.saintopt
+  deltas.DRM-SAINT-Gbin
+  optimizer.DRM-SAINT-Gopt
   logs.jsonl
 ```
 
@@ -31,13 +31,13 @@ runs/<exp>/
 `checkpoint.json` e um manifesto leve:
 
 ```text
-format: saint_checkpoint
+format: DRM-SAINT-G_checkpoint
 format_version: 1
 files:
-  - path: deltas.saintbin
+  - path: deltas.DRM-SAINT-Gbin
     payload: delta
     sha256: ...
-  - path: optimizer.saintopt
+  - path: optimizer.DRM-SAINT-Gopt
     payload: optimizer_state
     sha256: ...
 ```
@@ -47,10 +47,10 @@ mantendo leitura automatica de manifestos v1.
 
 ## Payload de Deltas
 
-`deltas.saintbin` usa:
+`deltas.DRM-SAINT-Gbin` usa:
 
 ```text
-magic: SAINTMAT1
+magic: DRM-SAINT-GMAT1
 header: JSON com shapes, offsets e dtype
 payload: float32 little-endian
 ```
@@ -60,10 +60,10 @@ modelo no `merge`.
 
 ## Estado do Otimizador
 
-`optimizer.saintopt` usa:
+`optimizer.DRM-SAINT-Gopt` usa:
 
 ```text
-magic: SAINTOPT1
+magic: DRM-SAINT-GOPT1
 header: JSON
 payload: zlib(JSON)
 ```
@@ -78,16 +78,16 @@ runtime salva pelo menos o resumo versionado de `optimizer_state_values`.
 
 - verifica `format_version`;
 - verifica SHA-256 de cada arquivo;
-- carrega `deltas.saintbin` quando `has_delta_payload=true`;
-- carrega `optimizer.saintopt`;
+- carrega `deltas.DRM-SAINT-Gbin` quando `has_delta_payload=true`;
+- carrega `optimizer.DRM-SAINT-Gopt`;
 - rejeita payload corrompido antes de retomar ou fundir.
 
 ## Implementado
 
 - `saint/checkpoints/robust.py`;
 - manifesto robusto em `checkpoint.json`;
-- deltas binarios em `deltas.saintbin`;
-- estado de otimizador em `optimizer.saintopt`;
+- deltas binarios em `deltas.DRM-SAINT-Gbin`;
+- estado de otimizador em `optimizer.DRM-SAINT-Gopt`;
 - `metrics.json` sem payload pesado;
 - validacao de integridade no `resume`;
 - validacao de integridade no `merge`;
