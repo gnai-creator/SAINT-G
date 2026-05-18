@@ -40,7 +40,7 @@ Resumo do estado:
 | 1 | Biblioteca de Blocos | Concluida |
 | 2 | Benchmark de Reconstrucao | Concluida |
 | 3 | Roteador de Blocos | Concluida |
-| 4 | Treino de Camada Linear | Pendente |
+| 4 | Treino de Camada Linear | Em andamento |
 | 5 | Mini-Transformer | Pendente |
 | 6+ | Escala e runtime completo | Pendente |
 
@@ -391,7 +391,7 @@ freeze melhora compressao, mas precisa ser validado em treino de deltas na Fase 
 
 ## 5. Fase 4 - Treino de Camada Linear
 
-Status: **pendente**.
+Status: **em andamento**.
 
 ### Objetivo
 
@@ -430,6 +430,117 @@ SAINT deve empatar ou superar pelo menos uma baseline eficiente em algum eixo re
 - menor checkpoint;
 - melhor loss para mesmo orcamento;
 - melhor ganho por byte.
+
+### Resultado Inicial
+
+Foi criado o primeiro benchmark dependency-free de aprendizado:
+
+```text
+scripts/benchmark_linear_phase4.py
+```
+
+Configuracao inicial:
+
+```text
+y = W_target x
+W_target = W_base + delta_target
+W_base congelada
+```
+
+Resultado inicial:
+
+```text
+full_delta test_loss: 0.0000003, params: 64
+saint_routed_delta test_loss: 0.0004701, params: 56
+lora_rank_2 test_loss: 0.0034705, params: 32
+sparse_sensitivity_delta test_loss: 0.0010289, params: 16
+```
+
+Leitura:
+
+```text
+SAINT ainda nao bate full_delta em loss,
+mas aprende com menos parametros e supera LoRA rank 2 nesse caso sintetico.
+```
+
+A Fase 4 continua em andamento porque falta sweep de sementes, ranks de LoRA,
+orcamentos do roteador e criterio automatico de sucesso/falha.
+
+### Resultado do Sweep
+
+Foi adicionado sweep com 5 sementes, LoRA rank 1/2/4 e tres orcamentos SAINT.
+
+Melhor variante SAINT:
+
+```text
+saint_routed_f50_c25
+test_loss medio: 0.0005749
+params medios: 51.2
+ganho/parametro: 0.00007862
+```
+
+Comparacao contra LoRA rank 2:
+
+```text
+lora_rank_2 test_loss medio: 0.0035034
+lora_rank_2 params medios: 32.0
+lora_rank_2 ganho/parametro: 0.00003379
+```
+
+O criterio automatico inicial foi:
+
+```text
+loss_ratio <= 1.0
+parameter_ratio <= 2.0
+gain_per_parameter_ratio >= 1.0
+```
+
+Resultado:
+
+```text
+saint_routed_f50_c25 passou contra lora_rank_2.
+saint_routed_f25_c50 passou contra lora_rank_2.
+saint_routed_f25_c25 falhou contra lora_rank_1 por exceder 2x parametros.
+```
+
+A Fase 4 continua em andamento porque falta testar tamanhos maiores, deltas
+menos favoraveis a codebook e LoRA com ajustes mais amplos de hiperparametros.
+
+### Resultado do Sweep de Regimes
+
+Foi adicionado um sweep com:
+
+```text
+sizes: 8x8, 16x16, 32x32
+delta_modes: repeated, dense
+seeds: 11, 12
+```
+
+Resultado agregado:
+
+```text
+saint_routed_f50_c25 test_loss medio: 0.0043511
+saint_routed_f50_c25 params medios: 364.0
+lora_rank_2 test_loss medio: 0.0098293
+lora_rank_2 params medios: 74.7
+budgeted_full_delta_for_saint_routed_f50_c25 test_loss medio: 0.0035874
+```
+
+Leitura:
+
+```text
+SAINT ainda vence LoRA rank 2 em loss,
+mas perde o criterio de parametros em 16x16 e 32x32.
+Contra full_delta esparso com orcamento equivalente, SAINT ainda perde.
+```
+
+Conclusao atual:
+
+```text
+Fase 4 permanece em andamento.
+O proximo trabalho e reduzir o crescimento de parametros do roteador
+e compartilhar codebooks em escala de camada.
+```
 
 ## 6. Fase 5 - Mini-Transformer
 

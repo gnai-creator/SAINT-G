@@ -1,0 +1,43 @@
+"""Training experiments for SAINT."""
+
+from .linear import (
+    LinearTask,
+    Phase4Decision,
+    TrainingResult,
+    evaluate_phase4_success,
+    evaluate_phase4_regime_success,
+    frozen_base_test_loss,
+    make_linear_delta_task,
+    run_linear_phase4_benchmark,
+    run_linear_phase4_regime_sweep,
+    run_linear_phase4_sweep,
+    summarize_phase4_rows,
+    train_block_scalar_delta,
+    train_budgeted_full_delta,
+    train_codebook_delta,
+    train_full_delta,
+    train_lora_delta,
+    train_saint_routed_delta,
+    train_sparse_sensitivity_delta,
+)
+
+__all__ = [
+    "LinearTask",
+    "Phase4Decision",
+    "TrainingResult",
+    "evaluate_phase4_success",
+    "evaluate_phase4_regime_success",
+    "frozen_base_test_loss",
+    "make_linear_delta_task",
+    "run_linear_phase4_benchmark",
+    "run_linear_phase4_regime_sweep",
+    "run_linear_phase4_sweep",
+    "summarize_phase4_rows",
+    "train_block_scalar_delta",
+    "train_budgeted_full_delta",
+    "train_codebook_delta",
+    "train_full_delta",
+    "train_lora_delta",
+    "train_saint_routed_delta",
+    "train_sparse_sensitivity_delta",
+]
