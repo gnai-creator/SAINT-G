@@ -3343,7 +3343,7 @@ Subfases:
 | 5B | retencao e dados maiores | concluido: 4/4 seeds passaram retencao |
 | 5C | baseline full mais forte | concluido parcial: competitivo na media, perdeu melhor caso |
 | 5D | segundo tamanho DRM | concluido parcial: multilingual 5M |
-| 5E | criterio automatico final | `phase_decision` JSON/Markdown |
+| 5E | criterio automatico final | concluido: `partial_pass`, 7/8 eixos |
 | 5F | relatorio final DRM-G | recomendacao para proxima fase |
 
 Criterio final:
@@ -3447,6 +3447,25 @@ benchmark passou operacionalmente e mostrou Phi vencendo `full_module_linear` na
 media multiseed e em estabilidade de runs positivos. O melhor caso individual
 ainda foi `full_module_linear`, entao o status continua parcialmente suportado,
 nao vitoria total.
+
+Marco 5E inicial:
+
+| eixo | passou |
+|---|---:|
+| `artifact_reproducible` | true |
+| `retention_win` | true |
+| `best_case_win` | false |
+| `mean_multiseed_win` | true |
+| `stability_win` | true |
+| `checkpoint_size_win` | true |
+| `memory_win` | true |
+| `compression_win` | true |
+
+O avaliador `scripts/benchmark_drm_g_marco5e.py` gerou
+`runs/drm_g_marco5e_phase_decision/phase_decision.json`. O status automatico foi
+`partial_pass`: 7 eixos passaram, com falha explicita em `best_case_win`. Este e
+o veredito correto para o Marco 5 ate agora: avancar como evidencia parcial, sem
+alegar dominancia absoluta contra full-module.
 
 ## Fase 16 - Escala 70B
 

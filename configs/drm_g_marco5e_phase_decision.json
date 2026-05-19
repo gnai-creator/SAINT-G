@@ -1,0 +1,22 @@
+{
+  "benchmark": "scripts/benchmark_drm_g_marco5e.py",
+  "output_dir": "runs/drm_g_marco5e_phase_decision",
+  "inputs": {
+    "marco5a": "runs/drm_g_marco5a_consolidate_linear/metrics.json",
+    "marco5b": "runs/drm_g_marco5b_retention/summary.json",
+    "marco5c_rows": "runs/drm_g_marco5c_phi_variants/results.json",
+    "marco5c_summary": "runs/drm_g_marco5c_phi_variants/summary.json",
+    "marco5d_summary": "runs/drm_g_marco5d_second_size/summary.json"
+  },
+  "criteria_axes": [
+    "artifact_reproducible",
+    "retention_win",
+    "best_case_win",
+    "mean_multiseed_win",
+    "stability_win",
+    "checkpoint_size_win",
+    "memory_win",
+    "compression_win"
+  ],
+  "required_axes": 6
+}

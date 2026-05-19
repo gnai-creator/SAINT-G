@@ -132,6 +132,53 @@ class DRMGraftingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _state_dict_from_file(TorchStub, Path("missing.pt"))
 
+    def test_phase_success_uses_multi_axis_decision(self):
+        from saint.adapters.drm_g_phase_success import evaluate_drm_g_phase_success
+
+        rows = [
+            {
+                "method": "phi_zero_4096",
+                "validation_gain": 0.2,
+                "gain_per_parameter": 0.2,
+                "trainable_parameters": 4096,
+            },
+            {
+                "method": "full_module_linear",
+                "validation_gain": 0.3,
+                "gain_per_parameter": 0.1,
+                "trainable_parameters": 4096,
+            },
+        ]
+        decision = evaluate_drm_g_phase_success(
+            marco5a={"artifact_bytes": 1000, "saved_loss_abs_diff": 0.0},
+            marco5b={"phase_5b_passed": True, "retention_passed_runs": 1},
+            marco5c_rows=rows,
+            marco5c_summary={},
+            marco5d_summary={
+                "method_summary": [
+                    {
+                        "method": "phi_zero_full_rank",
+                        "mean_gain": 0.2,
+                        "mean_gain_per_parameter": 0.2,
+                        "positive_runs": 4,
+                        "run_count": 4,
+                        "params": 4096,
+                    },
+                    {
+                        "method": "full_module_linear",
+                        "mean_gain": 0.1,
+                        "mean_gain_per_parameter": 0.1,
+                        "positive_runs": 3,
+                        "run_count": 4,
+                        "params": 4096,
+                    },
+                ]
+            },
+        )
+
+        self.assertTrue(decision["axes"]["mean_multiseed_win"])
+        self.assertFalse(decision["axes"]["best_case_win"])
+
 
 if __name__ == "__main__":
     unittest.main()

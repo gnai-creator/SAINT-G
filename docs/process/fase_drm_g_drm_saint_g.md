@@ -759,6 +759,8 @@ domina o melhor caso, mas compete melhor em media e estabilidade.
 
 #### Marco 5E - Criterio Automatico Final
 
+Status: **concluido**.
+
 Objetivo:
 
 Transformar o veredito da fase em regra programavel.
@@ -778,6 +780,48 @@ Entregas:
 Criterio:
 
 Passa se a decisao automatica bater com a leitura manual do benchmark.
+
+Resultado inicial:
+
+```text
+config: configs/drm_g_marco5e_phase_decision.json
+benchmark: scripts/benchmark_drm_g_marco5e.py
+output: runs/drm_g_marco5e_phase_decision
+phase_decision: runs/drm_g_marco5e_phase_decision/phase_decision.json
+status: partial_pass
+passed: true
+passed_axes: 7 / 6
+```
+
+Eixos avaliados:
+
+| eixo | passou |
+|---|---:|
+| `artifact_reproducible` | true |
+| `retention_win` | true |
+| `best_case_win` | false |
+| `mean_multiseed_win` | true |
+| `stability_win` | true |
+| `checkpoint_size_win` | true |
+| `memory_win` | true |
+| `compression_win` | true |
+
+Comparacoes principais:
+
+| item | metodo | mean_gain | mean_gain/param | positivos |
+|---|---|---:|---:|---:|
+| 5C Phi | `phi_zero_4096` | 0.017202 | 4.199748e-06 | 4 / 4 |
+| 5C full | `full_module_linear` | 0.016382 | 3.999550e-06 | 3 / 4 |
+| 5D Phi | `phi_ls_train_ab_half_rank` | 0.009759 | 8.471776e-07 | 3 / 4 |
+| 5D full | `full_module_linear` | 0.003337 | 3.621034e-07 | 2 / 4 |
+
+Veredito:
+
+5E passou. O avaliador automatico reproduz o veredito manual: Marco 5 nao e
+uma vitoria absoluta, porque `best_case_win=false`, mas passa como evidencia
+parcial/suportiva por artefato reproduzivel, retencao, media multiseed,
+estabilidade, checkpoint, memoria e compressao. Isto formaliza que DRM-SAINT-G
+deve avancar com ressalva cientifica, nao com alegacao de dominancia total.
 
 #### Marco 5F - Relatorio Final DRM-G
 
