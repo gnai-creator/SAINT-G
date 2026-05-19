@@ -1,0 +1,42 @@
+{
+  "experiment_name": "drm_g_marco5b_retention_linear",
+  "task": "drm_transformer",
+  "method": "drm_g_saint_phi_progressive",
+  "steps": 2,
+  "seed": 33,
+  "output_dir": "runs/drm_g_marco5b_retention_linear",
+  "metadata": {
+    "baseline_config": "configs/baselines/small_3.5M.yaml",
+    "device": "cpu",
+    "batch_size": 4,
+    "seq_len": 8,
+    "phi_rank": 8,
+    "graft_scale": 1.0,
+    "learning_rate": 0.005,
+    "use_real_tokens": true,
+    "real_data_dir": "data/baseline",
+    "validation_split": "val",
+    "validation_batches": 8,
+    "data_seed": 33,
+    "validation_seed": 3033,
+    "old_validation_seed": 1033,
+    "require_beats_dense": true,
+    "min_validation_gain": 0.0,
+    "min_gain_per_parameter": 0.0,
+    "defer_gain_floor": -0.00005,
+    "grafts": [
+      {
+        "target_module": "blocks.1.attn.out_proj",
+        "projection_init": "gradient"
+      },
+      {
+        "target_module": "blocks.2.attn.out_proj",
+        "projection_init": "gradient"
+      },
+      {
+        "target_module": "blocks.3.attn.out_proj",
+        "projection_init": "gradient"
+      }
+    ]
+  }
+}

@@ -3339,8 +3339,8 @@ Subfases:
 
 | subfase | foco | saida esperada |
 |---|---|---|
-| 5A | artefato consolidado em disco | `.pt` salvo, recarregado e avaliado |
-| 5B | retencao e dados maiores | mais batches, offsets e regressao antiga |
+| 5A | artefato consolidado em disco | concluido: `.pt` salvo, recarregado e avaliado |
+| 5B | retencao e dados maiores | concluido: 4/4 seeds passaram retencao |
 | 5C | baseline full mais forte | full-budget/full-module mais justo |
 | 5D | segundo tamanho DRM | repeticao fora do DRM 3.5M |
 | 5E | criterio automatico final | `phase_decision` JSON/Markdown |
@@ -3368,6 +3368,22 @@ Marco 5A inicial:
 O `.pt` consolidado foi salvo em
 `runs/drm_g_marco5a_consolidate_linear/consolidated_model.pt` e reproduziu a
 loss do caminho por hook.
+
+Marco 5B inicial:
+
+| metrica | valor |
+|---|---:|
+| seeds | 31, 32, 33, 34 |
+| validation_batches | 8 |
+| positive_runs | 4 / 4 |
+| retention_passed_runs | 4 / 4 |
+| max_old_regression | 0.0002 |
+| best_gain_per_parameter | 1.871958e-06 |
+
+O benchmark `scripts/benchmark_drm_g_marco5b.py` confirmou ganho positivo em
+todas as seeds testadas e `old_regression` negativa em todos os runs. O resultado
+fortalece a retencao no fixture tokenizado, mas ainda nao fecha a escala de dados
+exigida para encerrar o Marco 5 inteiro.
 
 ## Fase 16 - Escala 70B
 

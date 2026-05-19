@@ -464,6 +464,8 @@ recarregado e avaliou com a mesma loss do caminho por hook.
 
 #### Marco 5B - Retencao e Dados Maiores
 
+Status: **concluido no criterio inicial**.
+
 Objetivo:
 
 Reduzir o risco de overfit ao fixture curto.
@@ -479,6 +481,38 @@ Entregas:
 Criterio:
 
 Passa se `sequence_gain > 0` e `old_regression` fica dentro do limite configurado.
+
+Resultado inicial:
+
+```text
+config: configs/drm_g_marco5b_retention_linear.json
+benchmark: scripts/benchmark_drm_g_marco5b.py
+output: runs/drm_g_marco5b_retention
+seeds: 31, 32, 33, 34
+validation_batches: 8
+batch_size: 4
+max_old_regression: 0.0002
+positive_runs: 4 / 4
+retention_passed_runs: 4 / 4
+phase_5b_passed: true
+```
+
+Tabela resumida:
+
+| seed | validation_gain | gain/param | old_regression | approved | rejected | deferred |
+|---:|---:|---:|---:|---:|---:|---:|
+| 34 | 0.000120 | 1.871958e-06 | -0.000120 | 1 | 1 | 1 |
+| 33 | 0.000187 | 1.458451e-06 | -0.000187 | 2 | 0 | 1 |
+| 32 | 0.000180 | 9.393940e-07 | -0.000180 | 3 | 0 | 0 |
+| 31 | 0.000041 | 6.351620e-07 | -0.000041 | 1 | 0 | 2 |
+
+Veredito:
+
+5B passou no criterio inicial: todos os quatro runs multiseed tiveram ganho de
+validacao positivo e `old_regression` negativa, indicando que o enxerto aprovado
+nao degradou o split antigo medido. Isto ainda nao substitui corpus maior; 5B
+apenas reduz o risco de overfit ao fixture curto usando mais batches e offsets
+separados.
 
 #### Marco 5C - Baseline Full Mais Forte
 
