@@ -101,8 +101,16 @@ def _active_count(args, step: int, graft_count: int) -> int:
     return max(1, min(graft_count, 1 + (step * graft_count) // args.steps))
 
 
-def _save_artifact(torch, out_dir: Path, grafts, args, row: dict[str, Any]) -> Path:
-    artifact = out_dir / f"graftblock_g{row['graft_count']}_seed{row['seed']}.pt"
+def _save_artifact(
+    torch,
+    out_dir: Path,
+    grafts,
+    args,
+    row: dict[str, Any],
+    *,
+    prefix: str = "graftblock",
+) -> Path:
+    artifact = out_dir / f"{prefix}_g{row['graft_count']}_seed{row['seed']}.pt"
     payload = graft_checkpoint_payload(
         grafts=grafts,
         target_modules=args.targets,
@@ -121,6 +129,15 @@ def _append_metric(out_dir: Path, row: dict[str, Any]) -> None:
     path = out_dir / "training_metrics.jsonl"
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row) + "\n")
+
+
+def _early_stop(best_loss: float, eval_loss: float, bad_evals: int, args) -> tuple[float, int, bool]:
+    improved = eval_loss < (best_loss - args.early_stopping_min_delta)
+    if improved:
+        return eval_loss, 0, False
+    bad_evals += 1
+    should_stop = args.early_stopping_patience > 0 and bad_evals >= args.early_stopping_patience
+    return best_loss, bad_evals, should_stop
 
 
 def _recomposed_loss(torch, config_cls, model_cls, artifact: Path, metadata: dict[str, Any]) -> float:
@@ -184,6 +201,12 @@ def _train_one(args, seed: int, graft_count: int, out_dir: Path) -> dict[str, An
     start = perf_counter()
     trained_steps = 0
     last_eval_loss = base_loss
+    best_eval_loss = base_loss
+    best_eval_step = 0
+    best_eval_elapsed = 0.0
+    best_artifact: Path | None = None
+    bad_evals = 0
+    stopped_early = False
     try:
         max_steps = max(1, args.steps)
         for step in range(max_steps):
@@ -200,6 +223,33 @@ def _train_one(args, seed: int, graft_count: int, out_dir: Path) -> dict[str, An
             if args.eval_every_steps and trained_steps % args.eval_every_steps == 0:
                 set_progressive_state(grafts, graft_count, 1)
                 last_eval_loss = phi_bench._mean_eval(torch, model, drm_config, metadata)
+                best_eval_loss, bad_evals, stopped_early = _early_stop(
+                    best_eval_loss,
+                    last_eval_loss,
+                    bad_evals,
+                    args,
+                )
+                if bad_evals == 0:
+                    best_eval_step = trained_steps
+                    best_eval_elapsed = elapsed
+                    if args.save_best_checkpoint:
+                        preview = {
+                            "seed": seed,
+                            "graft_count": graft_count,
+                            "d_model": int(drm_config.d_model),
+                            "hidden_size": hidden_size,
+                            "activation": args.activation,
+                            "eval_loss": last_eval_loss,
+                            "step": trained_steps,
+                        }
+                        best_artifact = _save_artifact(
+                            torch,
+                            out_dir,
+                            grafts,
+                            args,
+                            preview,
+                            prefix="best_graftblock",
+                        )
                 _append_metric(out_dir, {
                     "seed": seed,
                     "graft_count": graft_count,
@@ -207,7 +257,12 @@ def _train_one(args, seed: int, graft_count: int, out_dir: Path) -> dict[str, An
                     "elapsed_s": elapsed,
                     "eval_loss": last_eval_loss,
                     "validation_gain": base_loss - last_eval_loss,
+                    "best_eval_loss": best_eval_loss,
+                    "bad_evals": bad_evals,
+                    "stopped_early": stopped_early,
                 })
+                if stopped_early:
+                    break
             if args.max_train_seconds > 0 and elapsed >= args.max_train_seconds:
                 break
         set_progressive_state(grafts, graft_count, 1)
@@ -245,7 +300,21 @@ def _train_one(args, seed: int, graft_count: int, out_dir: Path) -> dict[str, An
         "cuda_peak_bytes": _cuda_peak(torch, device),
         "full_125m_smoke_loss": args.full_125m_smoke_loss,
         "distance_to_full_125m_smoke": final_loss - args.full_125m_smoke_loss,
+        "last_eval_loss": last_eval_loss,
+        "best_eval_loss": best_eval_loss,
+        "best_eval_gain": base_loss - best_eval_loss,
+        "best_eval_step": best_eval_step,
+        "best_eval_elapsed_s": best_eval_elapsed,
+        "best_distance_to_full_125m_smoke": best_eval_loss - args.full_125m_smoke_loss,
+        "stopped_early": stopped_early,
+        "early_stopping_patience": args.early_stopping_patience,
+        "early_stopping_min_delta": args.early_stopping_min_delta,
     }
+    if best_artifact:
+        row["best_graft_checkpoint"] = str(best_artifact)
+        row["best_graft_checkpoint_bytes"] = best_artifact.stat().st_size
+        row["best_recomposed_loss"] = _recomposed_loss(torch, config_cls, model_cls, best_artifact, metadata)
+        row["best_recompose_abs_diff"] = abs(row["best_recomposed_loss"] - row["best_eval_loss"])
     if args.save_graft_checkpoint:
         artifact = _save_artifact(torch, out_dir, grafts, args, row)
         row["graft_checkpoint"] = str(artifact)
@@ -256,10 +325,11 @@ def _train_one(args, seed: int, graft_count: int, out_dir: Path) -> dict[str, An
 
 
 def _summary(rows: list[dict[str, Any]], plan_rows: list[dict[str, int]], args) -> dict[str, Any]:
-    best = max(rows, key=lambda row: row["validation_gain"])
+    best = max(rows, key=lambda row: row.get("best_eval_gain", row["validation_gain"]))
+    marco = "4d_early_stopping_best_checkpoint" if args.save_best_checkpoint else "4c_5m_graftblock_training"
     return {
         "phase": "16",
-        "marco": "4c_5m_graftblock_progressive_training",
+        "marco": marco,
         "baseline_config": args.baseline_config,
         "checkpoint": args.checkpoint,
         "data_dir": args.data_dir,
@@ -269,22 +339,27 @@ def _summary(rows: list[dict[str, Any]], plan_rows: list[dict[str, int]], args) 
         "mean_base_loss": sum(row["base_loss"] for row in rows) / len(rows),
         "mean_final_loss": sum(row["final_loss"] for row in rows) / len(rows),
         "mean_gain": sum(row["validation_gain"] for row in rows) / len(rows),
+        "mean_best_gain": sum(row.get("best_eval_gain", row["validation_gain"]) for row in rows) / len(rows),
         "mean_gain_per_parameter": sum(row["gain_per_parameter"] for row in rows) / len(rows),
         "positive_runs": sum(1 for row in rows if row["validation_gain"] > 0.0),
         "full_125m_smoke_loss": args.full_125m_smoke_loss,
-        "best_distance_to_full_125m_smoke": best["distance_to_full_125m_smoke"],
+        "best_distance_to_full_125m_smoke": best.get(
+            "best_distance_to_full_125m_smoke",
+            best["distance_to_full_125m_smoke"],
+        ),
         "best": best,
     }
 
 
 def _markdown(summary: dict[str, Any]) -> str:
     lines = [
-        "# Phase 16 Marco 4C - 5M GraftBlock Training",
+        "# Phase 16 Marco 4D - 5M GraftBlock Best Checkpoint",
         "",
         f"- checkpoint: `{summary['checkpoint']}`",
         f"- data_dir: `{summary['data_dir']}`",
         f"- target_total_parameters: {summary['target_total_parameters']}",
         f"- mean_gain: {summary['mean_gain']:.6f}",
+        f"- mean_best_gain: {summary['mean_best_gain']:.6f}",
         f"- mean_gain_per_parameter: {summary['mean_gain_per_parameter']:.6e}",
         f"- positive_runs: {summary['positive_runs']}/{summary['rows']}",
         f"- full_125m_smoke_loss: {summary['full_125m_smoke_loss']:.6f}",
@@ -310,7 +385,9 @@ def _markdown(summary: dict[str, Any]) -> str:
         f"- trainable_parameters: {best['trainable_parameters']}",
         f"- base_loss: {best['base_loss']:.6f}",
         f"- final_loss: {best['final_loss']:.6f}",
+        f"- best_eval_loss: {best.get('best_eval_loss', best['final_loss']):.6f}",
         f"- validation_gain: {best['validation_gain']:.6f}",
+        f"- best_eval_gain: {best.get('best_eval_gain', best['validation_gain']):.6f}",
         f"- distance_to_full_125m_smoke: {best['distance_to_full_125m_smoke']:.6f}",
         f"- train_s: {best['train_s']:.2f}",
     ])
@@ -333,6 +410,8 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--max-train-seconds", type=float, default=0.0)
     parser.add_argument("--eval-every-steps", type=int, default=0)
+    parser.add_argument("--early-stopping-patience", type=int, default=0)
+    parser.add_argument("--early-stopping-min-delta", type=float, default=0.0)
     parser.add_argument("--learning-rate", type=float, default=0.0002)
     parser.add_argument("--lr-decay", type=float, default=0.0)
     parser.add_argument("--weight-decay", type=float, default=0.0)
@@ -346,6 +425,7 @@ def main() -> int:
     parser.add_argument("--scale-warmup-grafts", type=int, default=2)
     parser.add_argument("--full-125m-smoke-loss", type=float, default=9.049912414550782)
     parser.add_argument("--save-graft-checkpoint", action="store_true")
+    parser.add_argument("--save-best-checkpoint", action="store_true")
     parser.add_argument(
         "--targets",
         nargs="*",

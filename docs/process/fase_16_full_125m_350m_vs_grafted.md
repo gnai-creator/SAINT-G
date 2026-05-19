@@ -343,6 +343,59 @@ O Marco 4D deve selecionar e aceitar enxertos por ganho de validacao, congelar o
 aceitos e so entao adicionar novos grupos. Nao devemos continuar apenas
 empilhando 24 enxertos por indice.
 
+### Marco 4D - Early Stopping e Melhor Checkpoint
+
+Objetivo:
+
+Corrigir o problema observado no treino de 4 horas: o caminho 24-graft e muito
+eficiente em VRAM/tempo, mas sem controle de validacao a loss final pode piorar.
+
+Resultado do treino de 4 horas sem early stopping:
+
+```text
+base_loss: 10.416174
+final_loss: 10.683245
+validation_gain: -0.267071
+trained_steps: 200.965
+cuda_peak: 3.43 GB
+recompose_abs_diff: 0.0
+```
+
+Status:
+
+```text
+implementado e validado em dry-run
+relatorio: docs/reports/phase16_marco4d_early_stopping.md
+```
+
+Entregas concluidas:
+
+- validacao periodica com `--eval-every-steps`;
+- checkpoint do melhor ponto com `--save-best-checkpoint`;
+- checkpoint final separado com `--save-graft-checkpoint`;
+- parada antecipada com `--early-stopping-patience`;
+- delta minimo com `--early-stopping-min-delta`;
+- historico em `training_metrics.jsonl`.
+
+Dry-run:
+
+```text
+lr: 3e-7
+max_train_seconds: 30
+trained_steps: 652
+final_loss: 10.415352
+final_gain: 0.000822
+best_eval_loss: 10.415417
+best_eval_gain: 0.000757
+best_recompose_abs_diff: 0.0
+```
+
+Veredito:
+
+O Marco 4D passa na infraestrutura de controle de treino. As proximas
+comparacoes de qualidade devem usar `best_eval_loss` e o artefato
+`best_graft_checkpoint`, nao apenas `final_loss`.
+
 ### Marco 5 - Comparacao Full vs Grafted
 
 Objetivo:

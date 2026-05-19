@@ -3602,6 +3602,42 @@ DRM 5M + 24 grafts treinado por ~4h
 Esse teste deve medir se a vantagem de velocidade transforma o grafted em uma
 alternativa competitiva quando ambos recebem o mesmo tempo real de treino.
 
+Marco 4D - early stopping e best checkpoint:
+
+```text
+relatorio: docs/reports/phase16_marco4d_early_stopping.md
+problema: treino 24-graft por 4h sem controle piorou loss
+4h final_loss: 10.683245
+4h validation_gain: -0.267071
+4h trained_steps: 200.965
+4h cuda_peak: 3.43 GB
+recompose_abs_diff: 0.0
+```
+
+Correcao implementada:
+
+```text
+--eval-every-steps
+--save-best-checkpoint
+--early-stopping-patience
+--early-stopping-min-delta
+training_metrics.jsonl
+```
+
+Dry-run Marco 4D:
+
+```text
+lr: 3e-7
+trained_steps: 652
+final_loss: 10.415352
+best_eval_loss: 10.415417
+best_recompose_abs_diff: 0.0
+```
+
+Veredito: os proximos testes longos devem comparar `best_eval_loss`, nao apenas
+`final_loss`. O treino longo provou eficiencia, mas tambem mostrou que
+checkpoint final sem validacao nao e criterio suficiente.
+
 ### Criterio de sucesso
 
 Sucesso minimo:
