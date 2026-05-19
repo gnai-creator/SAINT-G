@@ -15,6 +15,7 @@ class PhiHiddenGraft:
         seed: int,
         projections: tuple[Any, Any] | None = None,
     ):
+        self.torch = torch
         generator = torch.Generator(device="cpu")
         generator.manual_seed(seed)
         if projections is None:
@@ -28,7 +29,7 @@ class PhiHiddenGraft:
     def to(self, device: str):
         self.left = self.left.to(device)
         self.right = self.right.to(device)
-        self.phi = self.phi.to(device)
+        self.phi = self.torch.nn.Parameter(self.phi.detach().to(device))
         return self
 
     def parameters(self):
@@ -76,7 +77,7 @@ class DenseBudgetGraft:
         self.torch = torch
 
     def to(self, device: str):
-        self.weight = self.weight.to(device)
+        self.weight = self.torch.nn.Parameter(self.weight.detach().to(device))
         return self
 
     def parameters(self):

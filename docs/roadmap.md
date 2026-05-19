@@ -3286,11 +3286,10 @@ Benchmark multiseed:
 | runs com 2+ enxertos aprovados | 2 |
 | melhor sequence_gain | 0.000495 |
 | melhor gain/param | 3.8669e-06 |
-| melhor checkpoint | 78739 bytes |
-| routing_s | 0.2159 |
-| train_s | 0.4846 |
-| eval_s | 1.3374 |
-| cuda_peak_bytes | 0 |
+| melhor checkpoint | 78786 bytes |
+| routing_s CPU | 0.2380 |
+| train_s CPU | 0.5528 |
+| eval_s CPU | 1.2775 |
 
 Melhor run:
 
@@ -3302,17 +3301,35 @@ Etapas:
 
 | etapa | alvo | validation_gain | dense_gain | decisao |
 |---:|---|---:|---:|---|
-| 1 | `blocks.1.attn.out_proj` | 0.000293 | -0.042033 | approve |
-| 2 | `blocks.2.attn.out_proj` | 0.000202 | -0.041803 | approve |
-| 3 | `blocks.3.attn.out_proj` | -0.000020 | -0.041906 | defer |
+| 1 | `blocks.1.attn.out_proj` | 0.000293 | -0.040218 | approve |
+| 2 | `blocks.2.attn.out_proj` | 0.000202 | -0.041443 | approve |
+| 3 | `blocks.3.attn.out_proj` | -0.000020 | -0.039980 | defer |
+
+Merge permanente:
+
+| metrica | valor |
+|---|---:|
+| state_dict_merge_supported | true |
+| merge_loss_abs_diff | 0.0 |
+| merged_graft_loss | 10.804946 |
+
+CUDA:
+
+| metrica | valor |
+|---|---:|
+| approved_grafts | 3 |
+| sequence_gain | 0.000379 |
+| cuda_routing_peak_bytes | 71483904 |
+| cuda_train_peak_bytes | 51806720 |
+| cuda_eval_peak_bytes | 45419520 |
 
 Veredito:
 
 O Marco 4 passa no criterio de benchmark pequeno: ha repeticao multiseed,
 tokens reais em mais de um batch, sequencia linear consolidavel, politica
 `approve/reject/defer`, medicao de conflito, checkpoint recomponivel e ganho por
-parametro contra baseline densa local. A memoria CUDA ainda precisa ser medida
-em GPU; no benchmark CPU ficou `0`.
+parametro contra baseline full-budget linear. O merge permanente em memoria
+reproduz a loss via hook exatamente e o smoke CUDA mede picos por etapa.
 
 ## Fase 16 - Escala 70B
 

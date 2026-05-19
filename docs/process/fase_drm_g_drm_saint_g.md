@@ -324,9 +324,9 @@ baseline densa local de mesmo budget neste smoke.
 Pendencias:
 
 - aumentar a escala dos textos reais alem de `batch_size=4` e `validation_batches=3`;
-- validar CUDA em hardware alvo;
-- implementar merge permanente da sequencia linear, nao apenas hooks;
-- comparar contra um baseline full treinavel real no mesmo budget.
+- aumentar o corpus alem do fixture tokenizado atual;
+- testar mais modelos DRM crescidos;
+- salvar artefato `.pt` consolidado, nao apenas validar merge em memoria.
 
 Benchmark multiseed:
 
@@ -347,11 +347,11 @@ Resumo:
 | runs com 2+ enxertos aprovados | 2 |
 | melhor sequence_gain | 0.000495 |
 | melhor gain/param | 3.8669e-06 |
-| checkpoint melhor run | 78739 bytes |
-| cuda_peak_bytes | 0 |
-| routing_s | 0.2159 |
-| train_s | 0.4846 |
-| eval_s | 1.3374 |
+| checkpoint melhor run | 78786 bytes |
+| cuda_peak_bytes CPU run | 0 |
+| routing_s CPU run | 0.2380 |
+| train_s CPU run | 0.5528 |
+| eval_s CPU run | 1.2775 |
 
 Melhor run:
 
@@ -363,9 +363,9 @@ Etapas do melhor run:
 
 | etapa | alvo | init | validation_gain | dense_gain | decisao |
 |---:|---|---|---:|---:|---|
-| 1 | `blocks.1.attn.out_proj` | `gradient` | 0.000293 | -0.042033 | approve |
-| 2 | `blocks.2.attn.out_proj` | `gradient` | 0.000202 | -0.041803 | approve |
-| 3 | `blocks.3.attn.out_proj` | `gradient` | -0.000020 | -0.041906 | defer |
+| 1 | `blocks.1.attn.out_proj` | `gradient` | 0.000293 | -0.040218 | approve |
+| 2 | `blocks.2.attn.out_proj` | `gradient` | 0.000202 | -0.041443 | approve |
+| 3 | `blocks.3.attn.out_proj` | `gradient` | -0.000020 | -0.039980 | defer |
 
 O checkpoint recomposto da melhor sequencia reproduziu a media de validacao:
 
@@ -375,13 +375,36 @@ graft_loss: 10.804946
 validation_gain: 0.000495
 ```
 
+Merge permanente no `state_dict`:
+
+```text
+config: configs/drm_g_marco4_eval_linear_progressive_real_tokens.json
+eval_state_merge: true
+merge_loss_abs_diff: 0.0
+state_dict_merge_supported: true
+merged_graft_loss: 10.804946
+```
+
+CUDA:
+
+```text
+config: configs/drm_g_marco4_linear_progressive_cuda.json
+approved_grafts: 3
+sequence_gain: 0.000379
+cuda_routing_peak_bytes: 71483904
+cuda_train_peak_bytes: 51806720
+cuda_eval_peak_bytes: 45419520
+cuda_peak_bytes: 45419520
+```
+
 Leitura atualizada:
 
 O Marco 4 agora cobre as pendencias principais: multiseed, mais exemplos reais,
 fila `approve/reject/defer`, alvos lineares consolidaveis, tres candidatos por
 fila, metrica de conflito, tamanho de checkpoint, tempo separado e regressao em
-exemplos antigos. A memoria CUDA ainda aparece como `0` porque o benchmark foi
-executado em CPU.
+exemplos antigos. A sequencia linear tambem foi consolidada em memoria no
+`state_dict` e reproduziu exatamente a loss via hook. A medicao CUDA passou no
+DRM 3.5M com pico abaixo de 72 MB neste smoke.
 
 ## Metricas
 

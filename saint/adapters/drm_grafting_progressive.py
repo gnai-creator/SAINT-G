@@ -18,6 +18,7 @@ from saint.adapters.drm_grafting import (
     load_drm_baseline_config,
 )
 from saint.adapters.drm_grafting_decision import evaluate_graft_decision
+from saint.adapters.drm_grafting_full_budget import FullBudgetLinearGraft
 from saint.adapters.drm_grafting_modules import DenseBudgetGraft, PhiHiddenGraft
 from saint.adapters.drm_grafting_optimizer import optimizer_to_payload
 from saint.config import RuntimeConfig
@@ -74,6 +75,11 @@ def _cuda_peak(torch, device: str) -> int:
     if device.startswith("cuda") and torch.cuda.is_available():
         return int(torch.cuda.max_memory_allocated())
     return 0
+
+
+def _reset_cuda_peak(torch, device: str) -> None:
+    if device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
 
 
 def _mean_eval(
@@ -175,11 +181,21 @@ def _make_phi(
     return PhiHiddenGraft(torch, drm_config.d_model, rank, scale, seed, projections)
 
 
+def _baseline_graft(torch, model_cls, drm_config, target: str, budget: int, scale: float):
+    module = _target_module(model_cls(drm_config), target)
+    if hasattr(module, "weight") and getattr(module.weight, "ndim", 0) == 2:
+        return FullBudgetLinearGraft(torch, module, budget), "full_budget_linear"
+    return DenseBudgetGraft(torch, drm_config.d_model, int(budget ** 0.5), scale), "dense_budget_transform"
+
+
 def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
     start = perf_counter()
     routing_s = 0.0
     train_s = 0.0
     eval_s = 0.0
+    cuda_routing_peak = 0
+    cuda_train_peak = 0
+    cuda_eval_peak = 0
     metadata = dict(config.metadata or {})
     metadata["steps"] = config.steps
     torch, config_cls, model_cls, drm_root = _import_drm(metadata)
@@ -187,8 +203,7 @@ def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
     seed = int(metadata.get("seed", config.seed))
     metadata["seed"] = seed
     torch.manual_seed(seed)
-    if device.startswith("cuda") and torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
+    _reset_cuda_peak(torch, device)
     drm_config = load_drm_baseline_config(metadata, config_cls)
     inputs, targets = _tokens(torch, metadata, drm_config.vocab_size, device)
     eval_inputs, eval_targets = _tokens(
@@ -198,10 +213,12 @@ def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
     rows = []
     optimizer_states = []
     eval_start = perf_counter()
+    _reset_cuda_peak(torch, device)
     base_loss = _mean_eval(torch, model_cls, drm_config, metadata, device, approved)
     old_base_loss = _mean_eval(
         torch, model_cls, drm_config, {**metadata, "validation_seed": metadata.get("old_validation_seed", seed)}, device, approved
     )
+    cuda_eval_peak = max(cuda_eval_peak, _cuda_peak(torch, device))
     eval_s += perf_counter() - eval_start
     current_loss = base_loss
     candidates = _default_candidates(metadata)
@@ -210,25 +227,33 @@ def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
         init = str(candidate.get("projection_init", metadata.get("projection_init", "gradient")))
         loss_before = current_loss
         route_start = perf_counter()
+        _reset_cuda_peak(torch, device)
         phi = _make_phi(torch, model_cls, drm_config, metadata, device, inputs, targets, candidate, index)
+        cuda_routing_peak = max(cuda_routing_peak, _cuda_peak(torch, device))
         routing_s += perf_counter() - route_start
         train_start = perf_counter()
+        _reset_cuda_peak(torch, device)
         _candidate_batch_loss, optimizer_payload = _train_candidate(
             torch, model_cls, drm_config, metadata, device, inputs, targets,
             eval_inputs, eval_targets, approved, phi, target
         )
+        cuda_train_peak = max(cuda_train_peak, _cuda_peak(torch, device))
         train_s += perf_counter() - train_start
         payload = phi.payload(target, init)
         eval_start = perf_counter()
+        _reset_cuda_peak(torch, device)
         graft_loss = _mean_eval(
             torch, model_cls, drm_config, metadata, device, approved + [payload]
         )
+        cuda_eval_peak = max(cuda_eval_peak, _cuda_peak(torch, device))
         eval_s += perf_counter() - eval_start
-        dense = DenseBudgetGraft(torch, drm_config.d_model, int(phi.phi.shape[0]), float(phi.scale))
+        baseline, baseline_name = _baseline_graft(
+            torch, model_cls, drm_config, target, int(phi.phi.numel()), float(phi.scale)
+        )
         train_start = perf_counter()
         dense_loss, _dense_optimizer = _train_candidate(
             torch, model_cls, drm_config, metadata, device, inputs, targets,
-            eval_inputs, eval_targets, approved, dense, target
+            eval_inputs, eval_targets, approved, baseline, target
         )
         train_s += perf_counter() - train_start
         gain = loss_before - graft_loss
@@ -252,16 +277,19 @@ def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
             "loss_before": loss_before,
             "candidate_loss": graft_loss,
             "dense_budget_loss": dense_loss,
+            "baseline_name": baseline_name,
             "validation_gain": gain,
             "dense_budget_gain": dense_gain,
             "decision": queue_status,
             "approved": queue_status == "approve",
         })
     eval_start = perf_counter()
+    _reset_cuda_peak(torch, device)
     final_loss = _mean_eval(torch, model_cls, drm_config, metadata, device, approved)
     old_final_loss = _mean_eval(
         torch, model_cls, drm_config, {**metadata, "validation_seed": metadata.get("old_validation_seed", seed)}, device, approved
     )
+    cuda_eval_peak = max(cuda_eval_peak, _cuda_peak(torch, device))
     eval_s += perf_counter() - eval_start
     payload = {
         "format": "drm_graft_sequence_payload",
@@ -307,6 +335,9 @@ def run_drm_graft_progressive(config: RuntimeConfig) -> MiniTransformerResult:
             },
             "drm_g": True,
             "cuda_peak_bytes": _cuda_peak(torch, device),
+            "cuda_routing_peak_bytes": cuda_routing_peak,
+            "cuda_train_peak_bytes": cuda_train_peak,
+            "cuda_eval_peak_bytes": cuda_eval_peak,
             "routing_s": routing_s,
             "train_s": train_s,
             "eval_s": eval_s,

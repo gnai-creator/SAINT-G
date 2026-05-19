@@ -15,6 +15,7 @@
     "validation_split": "val",
     "validation_batches": 3,
     "validation_seed": 2033,
+    "eval_state_merge": true,
     "graft_run": "runs/drm_g_marco4_linear_progressive_real_tokens"
   }
 }

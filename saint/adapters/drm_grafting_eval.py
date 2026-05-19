@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from time import perf_counter
+from typing import Any
 
 from saint.adapters.drm_grafting import (
     _baseline_path,
@@ -15,6 +16,7 @@ from saint.adapters.drm_grafting import (
 )
 from saint.adapters.drm_grafting_data import token_batch
 from saint.adapters.drm_grafting_decision import consolidation_payload
+from saint.adapters.drm_grafting_merge import evaluate_merged_payload
 from saint.adapters.drm_grafting_modules import PhiHiddenGraft
 from saint.config import RuntimeConfig
 from saint.transformer.training import MiniTransformerResult
@@ -49,6 +51,32 @@ def _eval_payload(
     finally:
         for handle in handles:
             handle.remove()
+
+
+def _eval_merged(
+    torch,
+    model_cls,
+    drm_config,
+    payload: dict,
+    metadata: dict,
+    device: str,
+    seed: int,
+) -> tuple[float, dict[str, Any]]:
+    total = 0.0
+    summary = {}
+    batches = max(1, int(metadata.get("validation_batches", 1)))
+    for index in range(batches):
+        local = dict(metadata)
+        split = str(local.get("validation_split", "val"))
+        local[f"{split}_token_offset"] = int(local.get(f"{split}_token_offset", 0)) + index * 4096
+        eval_inputs, eval_targets = token_batch(
+            torch, local, drm_config.vocab_size, device, seed_key="validation_seed"
+        )
+        loss, summary = evaluate_merged_payload(
+            torch, model_cls, drm_config, payload, device, eval_inputs, eval_targets, seed
+        )
+        total += loss
+    return total / batches, summary
 
 
 def _mean_eval_payload(
@@ -102,6 +130,12 @@ def run_drm_graft_eval(config: RuntimeConfig) -> MiniTransformerResult:
     base_loss, graft_loss = _mean_eval_payload(
         torch, model_cls, drm_config, payload, metadata, device, seed
     )
+    merged_loss = None
+    merge_summary = None
+    if bool(metadata.get("eval_state_merge", False)):
+        merged_loss, merge_summary = _eval_merged(
+            torch, model_cls, drm_config, payload, metadata, device, seed
+        )
     grafts = payload.get("grafts") if payload.get("format") == "drm_graft_sequence_payload" else [payload]
     if payload.get("format") == "drm_graft_sequence_payload":
         consolidation = {
@@ -117,8 +151,8 @@ def run_drm_graft_eval(config: RuntimeConfig) -> MiniTransformerResult:
     params = sum(int(item.get("trainable_parameters", 0)) for item in grafts)
     return MiniTransformerResult(
         name="drm_g_saint_phi_eval",
-        train_loss=graft_loss,
-        test_loss=graft_loss,
+        train_loss=merged_loss if merged_loss is not None else graft_loss,
+        test_loss=merged_loss if merged_loss is not None else graft_loss,
         parameter_count=params,
         optimizer_state_values=0,
         elapsed_s=perf_counter() - start,
@@ -127,6 +161,12 @@ def run_drm_graft_eval(config: RuntimeConfig) -> MiniTransformerResult:
             "graft_run": str(run_dir),
             "base_loss": base_loss,
             "graft_loss": graft_loss,
+            "merged_graft_loss": merged_loss,
+            "merge_loss_abs_diff": (
+                abs(float(merged_loss) - float(graft_loss))
+                if merged_loss is not None else None
+            ),
+            "state_merge": merge_summary,
             "validation_gain": gain,
             "validation_gain_per_parameter": gain / max(1, params),
             "target_module": payload.get("target_module"),
