@@ -1,6 +1,21 @@
 # DRM-SAINT-G
 
 <p align="center">
+  <img src="assets/drm-saint-g-banner.png" alt="DRM-SAINT-G banner" width="800">
+</p>
+
+<p align="center">
+  <a href="COPYRIGHT"><img src="https://img.shields.io/badge/Copyright-All%20Rights%20Reserved-blue.svg" alt="Copyright"></a>
+  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776ab.svg" alt="Python 3.10+"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/PyTorch-2.11%2B-ee4c2c.svg" alt="PyTorch 2.11+"></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/Runtime-DRM--SAINT--G-blueviolet.svg" alt="Runtime DRM-SAINT-G"></a>
+  <a href="#core-idea"><img src="https://img.shields.io/badge/Grafting-A%20Phi%20B-green.svg" alt="Grafting A Phi B"></a>
+  <a href="https://github.com/gnai-creator/drm_transformer"><img src="https://img.shields.io/badge/Backbone-drm__transformer-orange.svg" alt="Backbone drm_transformer"></a>
+  <a href="docs/roadmap.md"><img src="https://img.shields.io/badge/Scaling-125M%2F350M%20to%2070B-yellow.svg" alt="Scaling 125M/350M to 70B"></a>
+  <a href="#scalability"><img src="https://img.shields.io/badge/Cluster-GPU%20graft%20search-0f766e.svg" alt="GPU cluster graft search"></a>
+</p>
+
+<p align="center">
   <strong>Simple AI Node Training for DRM growth by grafting</strong>
 </p>
 
