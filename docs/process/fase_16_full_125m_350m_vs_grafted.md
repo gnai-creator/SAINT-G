@@ -628,7 +628,7 @@ recomponivel. O proximo gargalo e diversidade de candidatos apos G1.
 
 ### Marco 4G - Candidate Grid Routed Growth
 
-Status: **pendente**.
+Status: **implementado, validado em dry-run**.
 
 Objetivo:
 
@@ -653,6 +653,30 @@ ou
 mais de um grupo aceito sem regressao composta
 checkpoint composto recompoe
 VRAM permanece controlada
+```
+
+Implementado:
+
+```text
+--candidate-learning-rates
+--candidate-init-scales
+--candidate-activations
+```
+
+Dry-run:
+
+```text
+runs/phase16_marco4g_grid_dryrun
+candidatos: 4
+accepted_groups: 0
+accumulated_gain: 0.0
+recompose_abs_diff: 0.0
+```
+
+Documento:
+
+```text
+docs/reports/phase16_marco4g_candidate_grid_routed_grafts.md
 ```
 
 ### Marco 5 - Comparacao Full vs Grafted

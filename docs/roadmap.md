@@ -3750,9 +3750,20 @@ primeiro grupo aceito.
 Marco 4G - candidate-grid routed growth:
 
 ```text
-status: pendente
+status: implementado, validado em dry-run
 objetivo: testar target x learning_rate x init_scale x activation
 criterio: aceitar mais de um grupo ou superar o ganho do Marco 4F
+```
+
+Implementado:
+
+```text
+--candidate-learning-rates
+--candidate-init-scales
+--candidate-activations
+runs/phase16_marco4g_grid_dryrun
+candidates: 4
+recompose_abs_diff: 0.0
 ```
 
 Dry-run:

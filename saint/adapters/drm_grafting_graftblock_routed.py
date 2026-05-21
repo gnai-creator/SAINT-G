@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from time import perf_counter
+from types import SimpleNamespace
 from typing import Any
 
 from scripts import benchmark_drm_g_marco5c_phi_variants as phi_bench
@@ -68,6 +69,11 @@ def _copy_states(torch, dst, src, device: str) -> None:
         out.load_state_dict(inc.state_dict(), device)
 
 
+def _copy_indices(dst, src, indices: set[int], device: str) -> None:
+    for index in indices:
+        dst[index].load_state_dict(src[index].state_dict(), device)
+
+
 def _state_payload(grafts) -> list[dict[str, Any]]:
     return [graft.state_dict() for graft in grafts]
 
@@ -97,6 +103,46 @@ def _compose_target_map(
         for index in indices:
             target_map[int(index)] = str(candidate)
     return target_map
+
+
+def _candidate_grid(args) -> list[dict[str, Any]]:
+    targets = list(args.candidate_targets or args.targets)
+    lrs = list(args.candidate_learning_rates or [args.learning_rate])
+    scales = list(args.candidate_init_scales or [args.init_scale])
+    activations = list(args.candidate_activations or [args.activation])
+    candidates = []
+    for target in targets:
+        for lr in lrs:
+            for scale in scales:
+                for activation in activations:
+                    candidates.append({
+                        "target": str(target),
+                        "learning_rate": float(lr),
+                        "init_scale": float(scale),
+                        "activation": str(activation),
+                        "tag": (
+                            f"{target}|lr={float(lr):.2e}|"
+                            f"scale={float(scale):.2e}|act={activation}"
+                        ),
+                    })
+    return candidates
+
+
+def _candidate_args(args, candidate: dict[str, Any]):
+    values = vars(args).copy()
+    values["learning_rate"] = float(candidate["learning_rate"])
+    values["init_scale"] = float(candidate["init_scale"])
+    values["activation"] = str(candidate["activation"])
+    return SimpleNamespace(**values)
+
+
+def _marco_name(args) -> str:
+    grid_args = (
+        args.candidate_learning_rates,
+        args.candidate_init_scales,
+        args.candidate_activations,
+    )
+    return "4g_candidate_grid_routed_grafts" if any(grid_args) else "4f_validation_routed_staged_grafts"
 
 
 def _train_current(torch, model, drm_config, metadata, grafts, indices, accepted, args, out_dir, stage, tag):
@@ -216,12 +262,13 @@ def _markdown(summary: dict[str, Any]) -> str:
         f"- accepted_groups: {summary['accepted_groups']}",
         f"- accepted_grafts: {summary['accepted_grafts']}",
         "",
-        "| stage | target | decision | gain | best |",
-        "|---:|---|---|---:|---:|",
+        "| stage | target | lr | init_scale | activation | decision | gain | best |",
+        "|---:|---|---:|---:|---|---|---:|---:|",
     ]
     for row in summary["stage_metrics"]:
         lines.append(
-            "| {stage} | {selected_target} | {decision} | "
+            "| {stage} | {selected_target} | {learning_rate:.2e} | "
+            "{init_scale:.2e} | {activation} | {decision} | "
             "{stage_gain:.6f} | {stage_best_loss:.6f} |".format(**row)
         )
     return "\n".join(lines) + "\n"
@@ -236,7 +283,7 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
     current_composed_loss = base_loss
     stage_metrics = []
     candidate_metrics = []
-    candidates = list(args.candidate_targets or args.targets)
+    candidates = _candidate_grid(args)
     for stage in range(1, int(args.max_stages) + 1):
         start = (stage - 1) * int(args.stage_size)
         end = min(start + int(args.stage_size), int(args.graft_count))
@@ -248,15 +295,17 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
         best_payload = None
         best_gain = None
         for candidate in candidates:
+            candidate_args = _candidate_args(args, candidate)
+            target = candidate["target"]
             model = _new_model(torch, model_cls, drm_config, metadata)
-            grafts = _new_grafts(torch, drm_config, metadata, args)
-            _copy_states(torch, grafts, accepted_states, str(metadata["device"]))
-            candidate_target_map = _compose_target_map(accepted_target_map, candidate, indices)
+            grafts = _new_grafts(torch, drm_config, metadata, candidate_args)
+            _copy_indices(grafts, accepted_states, accepted, str(metadata["device"]))
+            candidate_target_map = _compose_target_map(accepted_target_map, target, indices)
             handles = _attach_target_map(model, grafts, candidate_target_map)
             try:
                 result = _train_current(
                     torch, model, drm_config, metadata, grafts, indices, accepted,
-                    args, out_dir, stage, candidate,
+                    candidate_args, out_dir, stage, candidate["tag"],
                 )
             finally:
                 for handle in handles:
@@ -269,7 +318,7 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
                 model_cls,
                 drm_config,
                 metadata,
-                args,
+                candidate_args,
                 state_payload,
                 candidate_active,
                 candidate_target_map,
@@ -280,7 +329,15 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
             result["candidate_target_by_graft"] = {
                 str(key): value for key, value in sorted(candidate_target_map.items())
             }
-            result.update({"stage": stage, "candidate_target": candidate, "indices": indices})
+            result.update({
+                "stage": stage,
+                "candidate_target": target,
+                "learning_rate": candidate["learning_rate"],
+                "init_scale": candidate["init_scale"],
+                "activation": candidate["activation"],
+                "candidate_tag": candidate["tag"],
+                "indices": indices,
+            })
             probes.append(result)
             candidate_metrics.append(result)
             if best_gain is None or result["candidate_composed_gain"] > best_gain:
@@ -302,6 +359,10 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
             "graft_end": end,
             "stage_best_loss": best["best_loss"],
             "stage_gain": best["candidate_composed_gain"],
+            "learning_rate": best["learning_rate"],
+            "init_scale": best["init_scale"],
+            "activation": best["activation"],
+            "candidate_tag": best["candidate_tag"],
             "candidate_composed_loss": best["candidate_composed_loss"],
             "previous_composed_loss": previous_composed_loss,
             "target_by_graft": {str(key): value for key, value in sorted(accepted_target_map.items())},
@@ -319,7 +380,7 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
             handle.remove()
     summary = {
         "phase": "16",
-        "marco": "4f_validation_routed_staged_grafts",
+        "marco": _marco_name(args),
         "base_loss": base_loss,
         "composed_loss": composed_loss,
         "accumulated_gain": base_loss - composed_loss,
