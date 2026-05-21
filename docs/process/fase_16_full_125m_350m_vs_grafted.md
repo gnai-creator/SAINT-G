@@ -415,7 +415,7 @@ salvo e recomposto exatamente.
 
 ### Marco 4E - Staged Graft Growth
 
-Status: **pendente**.
+Status: **implementado, validado em dry-run**.
 
 Objetivo:
 
@@ -537,9 +537,9 @@ Procedimento:
 ```text
 1. gerar candidatos em blocks.0..5
 2. treinar cada candidato por budget curto
-3. medir best_eval_gain
-4. rankear candidatos
-5. aceitar o top grupo se gain > threshold
+3. medir loss do modelo composto com o candidato
+4. rankear candidatos por composed validation gain
+5. aceitar o top grupo se composed gain > threshold
 6. congelar grupo aceito
 7. repetir ate budget alvo ou sem candidatos positivos
 ```
@@ -549,7 +549,109 @@ Criterio:
 ```text
 selecionar grupo melhor que ordem fixa
 ganho acumulado > Marco 4E
-checkpoint composto recompÃµe
+checkpoint composto recompoe
+VRAM permanece controlada
+```
+
+Implementado:
+
+```text
+--training-mode validation_routed_staged
+--candidate-targets
+```
+
+Artefatos:
+
+```text
+candidate_metrics.json
+candidate_training_metrics.jsonl
+stage_metrics.json
+composed_graft_checkpoint.pt
+summary.json
+results.md
+```
+
+Dry-run:
+
+```text
+runs/phase16_marco4f_routed_dryrun
+candidatos testados: blocks.1, blocks.2
+accepted_groups: 0
+accumulated_gain: 0.0
+```
+
+O dry-run validou o caminho de runtime: candidatos foram testados, ranqueados,
+rejeitados quando nao melhoraram validacao e os artefatos esperados foram
+gerados.
+
+Marco 4F-fix:
+
+```text
+status: implementado
+motivo: a primeira versao aceitava por ganho local do candidato
+correcao: aceitar somente se candidate_composed_loss melhora o checkpoint composto
+estado: candidate_composed_loss usa o best_state_payload do candidato
+candidate_metrics.json: salva previous_composed_loss, candidate_composed_loss,
+candidate_composed_gain e candidate_target_by_graft
+checkpoint: salva target_by_graft para recompor cada grupo no bloco escolhido
+dry-run: runs/phase16_marco4f_fix_dryrun
+recompose_abs_diff: 0.0
+```
+
+O run 24-graft anterior continua valido como diagnostico: o roteador executou e
+recompos exatamente, mas aceitou grupos que melhoravam probes locais e pioravam
+o modelo composto. A regra corrigida transforma o aceite em uma decisao global.
+
+Resultado 24-graft corrigido:
+
+```text
+runs/phase16_marco4f_best_payload_24graft
+base_loss: 10.416174
+composed_loss: 10.414808
+accumulated_gain: 0.001366
+accepted_groups: 1
+accepted_grafts: 4
+selected_target: blocks.2
+stage 2: rejected, composed_gain 0.0
+recompose_abs_diff: 0.0
+```
+
+Veredito:
+
+```text
+Marco 4F passou.
+```
+
+O roteador agora escolhe `blocks.2` automaticamente, usa o melhor estado de
+validacao do candidato, aceita apenas ganho composto real e preserva checkpoint
+recomponivel. O proximo gargalo e diversidade de candidatos apos G1.
+
+### Marco 4G - Candidate Grid Routed Growth
+
+Status: **pendente**.
+
+Objetivo:
+
+Tentar aprovar mais de um grupo de enxertos usando uma busca de candidatos mais
+diversa.
+
+Procedimento:
+
+```text
+1. manter aceite por composed validation gain
+2. testar target x learning_rate x init_scale x activation
+3. aceitar o melhor candidato positivo
+4. congelar o grupo aceito
+5. repetir ate 24 grafts ou ate nao haver candidato positivo
+```
+
+Criterio:
+
+```text
+ganho acumulado > Marco 4F
+ou
+mais de um grupo aceito sem regressao composta
+checkpoint composto recompoe
 VRAM permanece controlada
 ```
 

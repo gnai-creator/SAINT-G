@@ -3702,10 +3702,66 @@ rejeita grupos improdutivos. O ganho acumulado supera ligeiramente o melhor
 Marco 4F - validation-routed staged grafts:
 
 ```text
-status: pendente
-objetivo: selecionar grupos por best_eval_gain
-metodo: testar candidatos em blocks.0..5, rankear e aceitar top grupo
+status: implementado, regra de aceite corrigida, validado em dry-run
+objetivo: selecionar grupos por composed validation gain
+metodo: testar candidatos em blocks.0..5, rankear pelo checkpoint composto
 criterio: ganho acumulado > Marco 4E
+```
+
+Implementado:
+
+```text
+--training-mode validation_routed_staged
+--candidate-targets
+candidate_metrics.json
+composed_graft_checkpoint.pt
+```
+
+Marco 4F-fix:
+
+```text
+motivo: primeiro run 24-graft aceitou grupos por ganho local e piorou composed_loss
+correcao: aceitar apenas se candidate_composed_loss melhora previous_composed_loss
+estado: candidate_composed_loss usa best_state_payload, nao o estado final
+candidate_metrics.json: inclui candidate_composed_loss e candidate_composed_gain
+checkpoint: salva target_by_graft para recomposicao fiel por bloco
+dry-run: runs/phase16_marco4f_fix_dryrun
+recompose_abs_diff: 0.0
+```
+
+Resultado 24-graft corrigido:
+
+```text
+runs/phase16_marco4f_best_payload_24graft
+base_loss: 10.416174
+composed_loss: 10.414808
+accumulated_gain: 0.001366
+accepted_groups: 1
+accepted_grafts: 4
+selected_target: blocks.2
+stage 2: rejected
+recompose_abs_diff: 0.0
+```
+
+Veredito: Marco 4F passou. O roteador escolhe alvo automaticamente e so aceita
+ganho composto real. O proximo limite e diversidade de candidatos depois do
+primeiro grupo aceito.
+
+Marco 4G - candidate-grid routed growth:
+
+```text
+status: pendente
+objetivo: testar target x learning_rate x init_scale x activation
+criterio: aceitar mais de um grupo ou superar o ganho do Marco 4F
+```
+
+Dry-run:
+
+```text
+runs/phase16_marco4f_routed_dryrun
+candidates: blocks.1, blocks.2
+accepted_groups: 0
+accumulated_gain: 0.0
 ```
 
 Criterio:

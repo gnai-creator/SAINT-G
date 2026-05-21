@@ -423,7 +423,7 @@ def main() -> int:
     parser.add_argument("--activation", choices=["silu", "gelu", "relu"], default="silu")
     parser.add_argument(
         "--training-mode",
-        choices=["simultaneous", "progressive", "staged"],
+        choices=["simultaneous", "progressive", "staged", "validation_routed_staged"],
         default="simultaneous",
     )
     parser.add_argument("--scale-warmup-grafts", type=int, default=2)
@@ -431,6 +431,7 @@ def main() -> int:
     parser.add_argument("--max-stages", type=int, default=6)
     parser.add_argument("--freeze-accepted-stages", action="store_true")
     parser.add_argument("--stage-accept-min-gain", type=float, default=0.0)
+    parser.add_argument("--candidate-targets", nargs="*", default=None)
     parser.add_argument("--full-125m-smoke-loss", type=float, default=9.049912414550782)
     parser.add_argument("--save-graft-checkpoint", action="store_true")
     parser.add_argument("--save-best-checkpoint", action="store_true")
@@ -464,6 +465,18 @@ def main() -> int:
                 graft_count=args.graft_count,
             ).hidden_size
         run_staged_graft_growth(torch, config_cls, model_cls, drm_config, metadata, args, out_dir)
+        return 0
+    if args.training_mode == "validation_routed_staged":
+        from saint.adapters.drm_grafting_graftblock_routed import run_validation_routed_staged
+
+        if not args.hidden_size:
+            args.hidden_size = plan_graft_blocks(
+                base_parameters=_base_params(temp_model),
+                target_total_parameters=args.target_total_parameters,
+                d_model=int(drm_config.d_model),
+                graft_count=args.graft_count,
+            ).hidden_size
+        run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metadata, args, out_dir)
         return 0
     graft_counts = args.graft_counts or [args.graft_count]
     rows = [
