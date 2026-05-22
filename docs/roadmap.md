@@ -3614,6 +3614,24 @@ problema: treino 24-graft por 4h sem controle piorou loss
 recompose_abs_diff: 0.0
 ```
 
+Resultado 24-graft:
+
+```text
+runs/phase16_marco4h_fine_g2_24graft
+base_loss: 10.416174
+composed_loss: 10.414671
+accumulated_gain: 0.001504
+accepted_groups: 2
+accepted_grafts: 5
+stage 1: blocks.2, grafts 0-3, gain 0.001450
+stage 2: blocks.3, graft 4, gain 0.000054
+stage 3: rejected
+recompose_abs_diff: 0.0
+```
+
+Veredito: Marco 4H passou. O gargalo de G2 era granularidade; `stage_size=1`
+destravou um enxerto incremental sem regressao composta.
+
 Resultado light probe:
 
 ```text

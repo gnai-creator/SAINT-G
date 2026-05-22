@@ -748,6 +748,31 @@ Documento:
 docs/reports/phase16_marco4h_fine_grained_second_stage.md
 ```
 
+Resultado 24-graft:
+
+```text
+runs/phase16_marco4h_fine_g2_24graft
+base_loss: 10.416174
+composed_loss: 10.414671
+accumulated_gain: 0.001504
+accepted_groups: 2
+accepted_grafts: 5
+stage 1: blocks.2, grafts 0-3, gain 0.001450
+stage 2: blocks.3, graft 4, gain 0.000054
+stage 3: rejected
+recompose_abs_diff: 0.0
+```
+
+Veredito:
+
+```text
+Marco 4H passou.
+```
+
+O resultado confirma que G2 nao era impossivel. O `stage_size=4` era grosso
+demais depois de G1. Com granularidade 1, o roteador aceitou um enxerto
+incremental em `blocks.3` sem regressao composta.
+
 ### Marco 5 - Comparacao Full vs Grafted
 
 Objetivo:

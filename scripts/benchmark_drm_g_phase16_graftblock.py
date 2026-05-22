@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
+import argparse, sys
 import json
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from scripts import benchmark_drm_g_marco5c_phi_variants as phi_bench
 from saint.adapters.drm_grafting import (
     _freeze,
@@ -25,11 +27,9 @@ from saint.adapters.drm_grafting_graftblock import (
     set_progressive_state,
 )
 
-
 DEFAULT_CONFIG = "configs/scaling/multilingual/5m.yaml"
 DEFAULT_CHECKPOINT = "checkpoints/multilingual_5m/smoke_819k/final.pt"
 DEFAULT_DATA = "data/multilingual_125m"
-
 
 def _metadata(args, seed: int) -> dict[str, Any]:
     return {

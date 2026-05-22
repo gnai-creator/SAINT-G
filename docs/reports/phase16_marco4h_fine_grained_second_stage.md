@@ -113,3 +113,51 @@ Strong pass:
 accepted_grafts >= 6
 no composed regression
 ```
+
+## 24-Graft Result
+
+Run:
+
+```text
+runs/phase16_marco4h_fine_g2_24graft
+```
+
+Result:
+
+| metric | value |
+|---|---:|
+| base_loss | 10.416174 |
+| composed_loss | 10.414671 |
+| accumulated_gain | 0.001504 |
+| accepted_groups | 2 |
+| accepted_grafts | 5 |
+| recompose_abs_diff | 0.0 |
+
+Stage summary:
+
+| stage | grafts | target | lr | init_scale | decision | gain |
+|---:|---:|---|---:|---:|---|---:|
+| 1 | 0-3 | blocks.2 | 3e-8 | 0.01 | approved | 0.001450 |
+| 2 | 4 | blocks.3 | 1e-7 | 0.01 | approved | 0.000054 |
+| 3 | 5 | blocks.1 | 3e-8 | 0.001 | rejected | 0.000000 |
+
+Comparison:
+
+```text
+Marco 4G light gain: 0.001446
+Marco 4H gain:       0.001504
+extra gain:          ~0.000058
+```
+
+Verdict:
+
+```text
+Marco 4H passed.
+```
+
+The result shows that G2 was not impossible. The previous `stage_size=4` was too
+coarse after G1. Reducing follow-up stages to one graft allowed the router to
+accept an additional graft on `blocks.3` without composed regression.
+
+The next bottleneck is stage 3. After five accepted grafts, the current local
+grid again fails to find a positive composed gain.
