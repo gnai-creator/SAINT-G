@@ -1173,6 +1173,68 @@ ou recuperar quinto graft em uma seed onde 4L rejeitou o stage 2
 ou reduzir runtime mantendo composed_loss equivalente.
 ```
 
+### Marco 4O - Tensor-Network Follow-ups from ITensors.jl
+
+Status: **planejado / design documentado**.
+
+Objetivo:
+
+Documentar e transformar ideias do ITensors.jl / ITensorMPS.jl em marcos
+PyTorch-native para SAINT-G e drm_transformer, sem adicionar Julia como
+dependencia imediata.
+
+Documento:
+
+```text
+docs/reports/phase16_marco4o_tensor_network_followups.md
+```
+
+Motivacao:
+
+```text
+ITensors.jl sugere disciplina de tensor networks:
+- indices nomeados/taggeados;
+- SVD/truncated-SVD com erro controlado;
+- MPS/MPO/Tensor Train com bond dimension explicito;
+- custo de contracao;
+- block-sparse/QN como analogia para setores de canais.
+```
+
+Submarcos recomendados:
+
+```text
+4O-lite - Graft SVD Anatomy:
+  carregar composed_graft_checkpoint.pt,
+  extrair matrizes dos grafts aceitos,
+  medir espectro singular, rank efetivo e erro de truncamento,
+  comparar seeds 42/7/123 e targets blocks.2/3/4.
+
+4O - Tensor-Train / MPS Adapter Baseline:
+  implementar TTLinear ou TTGraftBlock em PyTorch,
+  varrer bond_dim chi = 2/4/8/16,
+  comparar contra graft blocks em loss, parametros, bytes, runtime e robustez.
+
+DRM Marco A - Manifold Attention Tensor Anatomy:
+  no repo drm_transformer, capturar tensores de attention geometrica,
+  medir rank/entanglement/compressibilidade por layer/head/token/manifold_dim.
+```
+
+Criterio:
+
+```text
+passa se 4O-lite mostrar se os grafts aceitos usam capacidade real ou sao
+compressiveis para low-rank / Tensor Train pequeno. Se compressiveis, implementar
+4O completo; se nao, manter graft blocks e usar SVD apenas como diagnostico.
+```
+
+Relacao com 4M/4N:
+
+```text
+4M/4N respondem onde adaptar.
+4O-lite responde quanta capacidade os grafts uteis realmente precisam.
+4O testa se essa capacidade pode ser representada por Tensor Train / MPS.
+```
+
 ### Marco 5 - Comparacao Full vs Grafted
 
 Objetivo:
