@@ -118,15 +118,15 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/analyze_phase16_ntk_residual_saturation.py \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
 ```
 
 Expected terminal summary:
 
 ```text
-wrote 15 joined rows to /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
+wrote 15 joined rows to /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
 seed=42 composed_loss=10.414523839950562 accepted_grafts=5 recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
 seed=7 composed_loss=10.386313915252686 accepted_grafts=4 recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
 ```
@@ -134,17 +134,20 @@ seed=7 composed_loss=10.386313915252686 accepted_grafts=4 recommendations=reject
 ## 4N-A Command - Add Seed 123 Later
 
 Seed 123 is recommended before trusting 4N-B, but it is not a blocker for 4N-A.
-After seed 123 finishes, rerun with three `--run-dir` arguments:
+After seed 123 finishes, rerun with three `--run-dir` arguments. The script now
+fails fast if any run directory is missing `summary.json`, `stage_metrics.json`,
+`candidate_metrics.json`, or `ntk_activation_probe_metrics.json`; do not include
+seed 123 until its 4M artifacts exist.
 
 ```bash
 cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/analyze_phase16_ntk_residual_saturation.py \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123 \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123
 ```
 
 ## Current 4N-A Seed 42 + Seed 7 Observation

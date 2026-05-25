@@ -89,7 +89,7 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/benchmark_drm_g_phase16_graftblock.py \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
   --checkpoint /mnt/e/dev/ai/drm_transformer/checkpoints/multilingual_5m/smoke_819k/final.pt \
   --data-dir /mnt/e/dev/ai/drm_transformer/data/multilingual_125m \
   --device cuda \
@@ -132,7 +132,7 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/benchmark_drm_g_phase16_graftblock.py \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
   --checkpoint /mnt/e/dev/ai/drm_transformer/checkpoints/multilingual_5m/smoke_819k/final.pt \
   --data-dir /mnt/e/dev/ai/drm_transformer/data/multilingual_125m \
   --device cuda \
@@ -175,7 +175,7 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/benchmark_drm_g_phase16_graftblock.py \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123 \
   --checkpoint /mnt/e/dev/ai/drm_transformer/checkpoints/multilingual_5m/smoke_819k/final.pt \
   --data-dir /mnt/e/dev/ai/drm_transformer/data/multilingual_125m \
   --device cuda \
@@ -221,7 +221,7 @@ import json
 from pathlib import Path
 
 for seed in (42, 7, 123):
-    root = Path(f'/mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed{seed}')
+    root = Path(f'/home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed{seed}')
     summary_path = root / 'summary.json'
     ntk_path = root / 'ntk_activation_probe_metrics.json'
     if not summary_path.exists() or not ntk_path.exists():
@@ -244,7 +244,7 @@ PY
 Seed 42 completed successfully and reproduced the Marco 4K best known result:
 
 ```text
-run_dir: /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42
+run_dir: /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42
 base_loss: 10.416174411773682
 composed_loss: 10.414523839950562
 accumulated_gain: 0.0016505718231201172
@@ -279,7 +279,7 @@ Interpretation for seed 42:
 Seed 7 completed as the next diagnostic replication:
 
 ```text
-run_dir: /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7
+run_dir: /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7
 base_loss: 10.386841535568237
 composed_loss: 10.386313915252686
 accumulated_gain: 0.0005276203155517578

@@ -1008,7 +1008,7 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/benchmark_drm_g_phase16_graftblock.py \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4l_two_pass_topk8_probe2k_24graft_seed7 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4l_two_pass_topk8_probe2k_24graft_seed7 \
   --checkpoint /mnt/e/dev/ai/drm_transformer/checkpoints/multilingual_5m/smoke_819k/final.pt \
   --data-dir /mnt/e/dev/ai/drm_transformer/data/multilingual_125m \
   --device cuda \
@@ -1043,7 +1043,7 @@ python \
 
 python \
   scripts/benchmark_drm_g_phase16_graftblock.py \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4l_two_pass_topk8_probe2k_24graft_seed123 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4l_two_pass_topk8_probe2k_24graft_seed123 \
   --checkpoint /mnt/e/dev/ai/drm_transformer/checkpoints/multilingual_5m/smoke_819k/final.pt \
   --data-dir /mnt/e/dev/ai/drm_transformer/data/multilingual_125m \
   --device cuda \
@@ -1204,9 +1204,9 @@ cd /home/rato/dev/ai/SAINT-G
 
 python \
   scripts/analyze_phase16_ntk_residual_saturation.py \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
-  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
-  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
 ```
 
 Saidas 4N-A:

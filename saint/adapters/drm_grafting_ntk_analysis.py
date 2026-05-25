@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -22,10 +22,40 @@ from typing import Any, Iterable
 JsonDict = dict[str, Any]
 
 
-def _load_json(path: Path, default: Any) -> Any:
+REQUIRED_ARTIFACTS = (
+    "summary.json",
+    "stage_metrics.json",
+    "candidate_metrics.json",
+    "ntk_activation_probe_metrics.json",
+)
+
+
+def _load_json(path: Path) -> Any:
     if not path.exists():
-        return default
+        raise FileNotFoundError(f"required 4N-A input artifact is missing: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_run_artifacts(
+    run_dir: Path,
+    summary: JsonDict,
+    stage_metrics: list[JsonDict],
+    candidate_metrics: list[JsonDict],
+    ntk_rows: list[JsonDict],
+) -> None:
+    missing = [name for name in REQUIRED_ARTIFACTS if not (run_dir / name).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"run directory {run_dir} is missing required 4N-A artifact(s): {', '.join(missing)}"
+        )
+    if not summary or "composed_loss" not in summary or "accepted_grafts" not in summary:
+        raise ValueError(f"run directory {run_dir} has empty or invalid summary.json")
+    if not stage_metrics:
+        raise ValueError(f"run directory {run_dir} has empty or invalid stage_metrics.json")
+    if not candidate_metrics:
+        raise ValueError(f"run directory {run_dir} has empty or invalid candidate_metrics.json")
+    if not ntk_rows:
+        raise ValueError(f"run directory {run_dir} has empty or invalid ntk_activation_probe_metrics.json")
 
 
 def _stage_by_number(stage_metrics: Iterable[JsonDict]) -> dict[int, JsonDict]:
@@ -152,10 +182,11 @@ def summarize_routing_signal(rows: list[JsonDict]) -> JsonDict:
 
 def analyze_run(run_dir: str | Path, *, seed: str | int | None = None) -> tuple[list[JsonDict], JsonDict]:
     root = Path(run_dir)
-    summary = _load_json(root / "summary.json", {})
-    stage_metrics = _load_json(root / "stage_metrics.json", [])
-    candidate_metrics = _load_json(root / "candidate_metrics.json", [])
-    ntk_rows = _load_json(root / "ntk_activation_probe_metrics.json", [])
+    summary = _load_json(root / "summary.json")
+    stage_metrics = _load_json(root / "stage_metrics.json")
+    candidate_metrics = _load_json(root / "candidate_metrics.json")
+    ntk_rows = _load_json(root / "ntk_activation_probe_metrics.json")
+    _validate_run_artifacts(root, summary, stage_metrics, candidate_metrics, ntk_rows)
     if seed is None:
         seed = root.name.rsplit("seed", 1)[-1] if "seed" in root.name else "unknown"
     rows = build_joined_rows(

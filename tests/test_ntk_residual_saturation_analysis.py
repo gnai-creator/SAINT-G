@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 
 class NTKResidualSaturationAnalysisTests(unittest.TestCase):
@@ -70,6 +72,29 @@ class NTKResidualSaturationAnalysisTests(unittest.TestCase):
         self.assertEqual(summary["raw_ntk_top1_selected_count"], 1)
         self.assertEqual(summary["selected_targets_not_top1_count"], 1)
         self.assertIn("reject_raw_ntk_prefilter", summary["recommendations"])
+
+    def test_analyze_run_rejects_missing_artifacts(self):
+        from saint.adapters.drm_grafting_ntk_analysis import analyze_run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123"
+            run_dir.mkdir()
+
+            with self.assertRaisesRegex(FileNotFoundError, "summary.json"):
+                analyze_run(run_dir)
+
+    def test_analyze_run_rejects_empty_artifacts(self):
+        from saint.adapters.drm_grafting_ntk_analysis import analyze_run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            (run_dir / "summary.json").write_text("{}", encoding="utf-8")
+            (run_dir / "stage_metrics.json").write_text("[]", encoding="utf-8")
+            (run_dir / "candidate_metrics.json").write_text("[]", encoding="utf-8")
+            (run_dir / "ntk_activation_probe_metrics.json").write_text("[]", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "empty or invalid"):
+                analyze_run(run_dir)
 
 
 if __name__ == "__main__":
