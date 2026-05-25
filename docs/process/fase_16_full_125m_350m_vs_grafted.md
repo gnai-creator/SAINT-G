@@ -1145,29 +1145,35 @@ seed 42: completed; reproduced 4K best result
   composed_loss: 10.414523839950562
   accepted_grafts: 5
   route: grafts 0-3 -> blocks.4, graft 4 -> blocks.2
-  NTK raw ranking: blocks.4 > blocks.3 > blocks.2 in stages 1, 2 and 3
+  selected top-1 rate in 4N-A: 0.333
 
 seed 7: completed
   composed_loss: 10.386313915252686
   accepted_grafts: 4
   route: grafts 0-3 -> blocks.4
   stage 2 selected blocks.2 and rejected it with gain 0.0
-  NTK raw ranking: blocks.4 > blocks.3 > blocks.2 in stages 1 and 2
+  selected top-1 rate in 4N-A: 0.500
 
-seed 123: pending / recommended as confirmation, but not a blocker for 4N-A
+seed 123: completed
+  composed_loss: 10.415361166000366
+  accepted_grafts: 4
+  route: grafts 0-3 -> blocks.3
+  stage 1 selected blocks.3 even though raw NTK top-1 was blocks.4
+  stage 2 selected blocks.4 and rejected it with gain 0.0
+  selected top-1 rate in 4N-A: 0.500
 ```
 
-Interim interpretation: raw NTK score explains the first accepted group in seeds
-42 and 7, but not the fifth graft or seed sensitivity. Seed 42 selected
-`blocks.2` in stage 2 and approved it even though raw NTK ranked `blocks.2`
-last; seed 7 also selected `blocks.2`, but rejected it with gain 0.0 under the
-same raw ranking. Marco 4N is therefore split into 4N-A and 4N-B: 4N-A performs
-offline residual/saturation analysis, and 4N-B is a later conservative routing
-experiment if 4N-A finds a safe rule.
+Final 4M/4N-A interpretation: raw NTK score is a useful global sensitivity
+diagnostic, but not a safe routing signal. Seed 42 approved stage-2 `blocks.2`
+even though raw NTK ranked it last; seed 7 rejected a similar `blocks.2` stage;
+seed 123 got seed-42-scale gain from `blocks.3` even though raw NTK ranked
+`blocks.4` first. Marco 4N remains split into 4N-A and 4N-B: 4N-A completed the
+offline residual/saturation analysis, and 4N-B should be a conservative routing
+experiment only if it preserves known useful targets.
 
 ### Marco 4N - NTK Residual/Saturation Routing Plan
 
-Status: **4N-A implementado / 4N-B planejado e dependente da analise offline**.
+Status: **4N-A concluido para seeds 42, 7 e 123 / 4N-B planejado como experimento conservador**.
 
 Objetivo:
 
@@ -1197,7 +1203,7 @@ scripts/analyze_phase16_ntk_residual_saturation.py
 tests/test_ntk_residual_saturation_analysis.py
 ```
 
-Comando 4N-A para seeds 42 e 7:
+Comando 4N-A completo para seeds 42, 7 e 123:
 
 ```bash
 cd /home/rato/dev/ai/SAINT-G
@@ -1206,7 +1212,17 @@ python \
   scripts/analyze_phase16_ntk_residual_saturation.py \
   --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
   --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
-  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
+  --run-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123 \
+  --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123
+```
+
+Resultado 4N-A:
+
+```text
+wrote 21 joined rows
+seed=42  recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
+seed=7   recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
+seed=123 recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
 ```
 
 Saidas 4N-A:
@@ -1239,9 +1255,10 @@ hybrid conservative:
 Criterio:
 
 ```text
-4N-A deve mostrar se alguma feature residual/saturation-aware separa
-seed 42 stage-2 blocks.2 approved de seed 7 stage-2 blocks.2 rejected.
-4N-B so deve ser implementado se a regra nao descartar targets uteis conhecidos.
+4N-A mostrou que raw NTK nao separa de forma segura os casos uteis/rejeitados.
+4N-B so deve ser implementado se a regra preservar seed 42 stage-2 blocks.2,
+seed 123 stage-1 blocks.3, e evitar tratar raw top-1 como suficiente quando o
+ganho marginal e zero.
 ```
 
 ### Marco 4O - Tensor-Network Follow-ups from ITensors.jl

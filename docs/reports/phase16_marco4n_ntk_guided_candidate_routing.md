@@ -1,6 +1,6 @@
 # Phase 16 Marco 4N - NTK Residual/Saturation Routing Plan
 
-Status: **split into 4N-A implemented offline analysis and 4N-B planned routing experiment**.
+Status: **4N-A completed for seeds 42, 7, and 123; 4N-B planned as conservative routing experiment**.
 
 ## Decision From Marco 4M
 
@@ -10,23 +10,30 @@ Marco 4M tested the NTK-Mirror-inspired raw activation-gate score:
 score(block) = sum(abs(grad_h * h))
 ```
 
-The first completed seeds show that raw NTK is stable but not sufficient as a
-router:
+The completed seeds show that raw NTK is stable but not sufficient as a router:
 
 ```text
 seed 42:
   accepted_grafts: 5
-  stage 2 selected blocks.2 and approved the fifth graft
-  raw NTK rank in every stage: blocks.4 > blocks.3 > blocks.2
+  stage 1 selected blocks.4, raw NTK rank 1, approved
+  stage 2 selected blocks.2, raw NTK rank 3, approved fifth graft
+  stage 3 selected blocks.3, raw NTK rank 2, rejected
 
 seed 7:
   accepted_grafts: 4
-  stage 2 selected blocks.2 and rejected it with gain 0.0
-  raw NTK rank in every stage: blocks.4 > blocks.3 > blocks.2
+  stage 1 selected blocks.4, raw NTK rank 1, approved
+  stage 2 selected blocks.2, raw NTK rank 3, rejected with gain ~0
+
+seed 123:
+  accepted_grafts: 4
+  stage 1 selected blocks.3, raw NTK rank 2, approved with seed-42-scale gain
+  stage 2 selected blocks.4, raw NTK rank 1, rejected with gain 0
 ```
 
 Therefore the raw score appears to measure global activation sensitivity rather
-than marginal utility after previous grafts have already been accepted.
+than marginal utility after previous grafts have already been accepted. Seed 123
+is the strongest counterexample: raw NTK top-1 preferred `blocks.4`, while the
+useful first-stage candidate was `blocks.3` at raw NTK rank 2.
 
 Direct promotion of raw NTK is rejected for now:
 
@@ -43,7 +50,7 @@ which target still has unexplored marginal utility after previous grafts?
 
 ## 4N-A - NTK Residual/Saturation Analysis
 
-Status: **implemented / ready to run offline**.
+Status: **implemented / completed for seeds 42, 7, and 123**.
 
 4N-A does not change training or routing. It joins Marco 4M artifacts and writes
 an offline feature table for candidate routing analysis.
@@ -99,14 +106,23 @@ best_candidate_composed_gain:
   best observed candidate_composed_gain for the same stage and target
 ```
 
-The first pass over seed 42 and seed 7 already produces the expected conservative
-recommendation:
+The completed pass over seeds 42, 7, and 123 produces the same conservative
+recommendation for every seed:
 
 ```text
 reject_raw_ntk_prefilter
 test_saturation_adjusted_ntk
 test_residual_delta_ntk
 include_target_saturation_features
+```
+
+4N-A artifacts:
+
+```text
+/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123/ntk_candidate_joined_metrics.json
+/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123/ntk_stage_feature_table.csv
+/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123/ntk_run_summaries.json
+/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123/ntk_routing_analysis.md
 ```
 
 ## 4N-A Command - Seed 42 + Seed 7
@@ -131,13 +147,11 @@ seed=42 composed_loss=10.414523839950562 accepted_grafts=5 recommendations=rejec
 seed=7 composed_loss=10.386313915252686 accepted_grafts=4 recommendations=reject_raw_ntk_prefilter,test_saturation_adjusted_ntk,test_residual_delta_ntk,include_target_saturation_features
 ```
 
-## 4N-A Command - Add Seed 123 Later
+## 4N-A Command - Completed Seeds 42 + 7 + 123
 
-Seed 123 is recommended before trusting 4N-B, but it is not a blocker for 4N-A.
-After seed 123 finishes, rerun with three `--run-dir` arguments. The script now
+Seed 123 has completed. Run 4N-A with three `--run-dir` arguments. The script
 fails fast if any run directory is missing `summary.json`, `stage_metrics.json`,
-`candidate_metrics.json`, or `ntk_activation_probe_metrics.json`; do not include
-seed 123 until its 4M artifacts exist.
+`candidate_metrics.json`, or `ntk_activation_probe_metrics.json`.
 
 ```bash
 cd /home/rato/dev/ai/SAINT-G
@@ -150,20 +164,28 @@ python \
   --output-dir /home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7_seed123
 ```
 
-## Current 4N-A Seed 42 + Seed 7 Observation
+## Current 4N-A Seed 42 + Seed 7 + Seed 123 Observation
 
 The generated `ntk_routing_analysis.md` shows:
 
 ```text
 seed 42 selected top-1 rate: 0.333
 seed 7 selected top-1 rate: 0.500
+seed 123 selected top-1 rate: 0.500
 ```
 
-Critical rows:
+Critical selected-target rows:
 
 ```text
+seed 42 stage 1:
+  selected target: blocks.4
+  decision: approved
+  raw NTK rank: 1
+  best_candidate_composed_gain: 0.001549959
+
 seed 42 stage 2:
   selected target: blocks.2
+  decision: approved
   raw NTK rank: 3
   raw NTK score: 2.03331
   saturation_adjusted_ntk: 2.03331
@@ -171,23 +193,46 @@ seed 42 stage 2:
 
 seed 7 stage 2:
   selected target: blocks.2
+  decision: rejected
   raw NTK rank: 3
   raw NTK score: 2.02389
   saturation_adjusted_ntk: 2.02389
   best_candidate_composed_gain: 0.000000238419
+
+seed 123 stage 1:
+  selected target: blocks.3
+  decision: approved
+  raw NTK rank: 2
+  raw NTK score: 3.08944
+  saturation_adjusted_ntk: 3.08944
+  best_candidate_composed_gain: 0.00165391
+
+seed 123 stage 2:
+  selected target: blocks.4
+  decision: rejected
+  raw NTK rank: 1
+  raw NTK score: 4.19210
+  saturation_adjusted_ntk: 4.19210
+  best_candidate_composed_gain: 0.0
 ```
 
-This confirms that raw NTK does not separate the useful seed-42 fifth graft from
-the rejected seed-7 second stage.
-
-The more promising signal is target saturation:
+This confirms two separate failures of raw NTK as a direct router:
 
 ```text
-blocks.4 raw NTK remains highest after stage 1,
-but blocks.4 already has 4 accepted grafts.
+1. It does not separate the useful seed-42 stage-2 blocks.2 fifth graft from the
+   rejected seed-7 stage-2 blocks.2 candidate.
+2. It misses the useful seed-123 stage-1 blocks.3 candidate because raw top-1
+   still prefers blocks.4.
 ```
 
-After saturation adjustment, stage-2 `blocks.4` drops strongly:
+The more promising signal is composition state, especially target saturation:
+
+```text
+blocks.4 raw NTK can remain highest after stage 1,
+but extra grafts on a saturated target may have near-zero marginal gain.
+```
+
+After saturation adjustment, saturated targets drop strongly:
 
 ```text
 seed 42 stage 2 blocks.4:
@@ -199,10 +244,16 @@ seed 7 stage 2 blocks.4:
   raw_ntk: 4.13932
   accepted_grafts_on_target_before_stage: 4
   saturation_adjusted_ntk: 0.827863
+
+seed 123 stage 2 blocks.3:
+  raw_ntk: 3.13342
+  accepted_grafts_on_target_before_stage: 4
+  saturation_adjusted_ntk: 0.626684
 ```
 
-This supports the idea that 4N-B should test anti-saturation or
-saturation-adjusted variants rather than raw top-1 NTK.
+This supports 4N-B as a conservative hybrid: preserve
+`composed_gain_orthogonal` as the primary decision source, and use NTK-derived
+features only for candidate ordering, warnings, anti-saturation, or tie-breaks.
 
 ## 4N-B - NTK-Guided Routing Rule
 
@@ -235,16 +286,18 @@ Candidate rules:
 ## 4N-B Safety Requirements
 
 Do not implement a raw NTK top-1 prefilter as the next experiment. The evidence
-from seeds 42 and 7 says that would over-favor `blocks.4` and may discard the
-useful `blocks.2` stage-2 candidate.
+from seeds 42, 7, and 123 says that would over-favor `blocks.4`, may discard the
+useful seed-42 `blocks.2` stage-2 candidate, and may discard the useful seed-123
+`blocks.3` stage-1 candidate.
 
 Before 4N-B routes automatically, the rule should pass these checks offline:
 
 ```text
 - it keeps seed 42 stage-2 blocks.2 in the candidate set;
+- it keeps seed 123 stage-1 blocks.3 in the candidate set despite raw NTK rank 2;
 - it does not over-prioritize blocks.4 after blocks.4 already has 4 grafts;
-- it explains why seed 7 blocks.2 had near-zero candidate gain;
-- it remains compatible with seed 123 once that run finishes.
+- it does not treat raw NTK top-1 as sufficient when the candidate gain is zero;
+- it explains why seed 7 blocks.2 had near-zero candidate gain.
 ```
 
 ## Relationship to NTK-Mirror

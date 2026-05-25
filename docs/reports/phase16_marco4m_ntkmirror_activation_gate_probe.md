@@ -310,8 +310,54 @@ activation sensitivity rather than marginal post-graft utility. It is stable
 across seeds 42 and 7, but it does not explain why seed 42 gets a useful fifth
 graft in `blocks.2` while seed 7 rejects the same target.
 
-Seed 123 remains recommended as confirmation, but it is no longer a blocker for
-4N-A offline analysis.
+Seed 123 completed as the third diagnostic replication:
+
+```text
+run_dir: /home/rato/dev/ai/SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed123
+base_loss: 10.417015075683594
+composed_loss: 10.415361166000366
+accumulated_gain: 0.001653909683227539
+accepted_groups: 1
+accepted_grafts: 4
+route: grafts 0-3 -> blocks.3
+recomposed_loss: 10.415361166000366
+recompose_abs_diff: 0.0
+```
+
+Seed 123 preserved the same broad raw NTK ordering, but the useful target was not
+raw top-1:
+
+```text
+stage 1 NTK rank: blocks.4 > blocks.3 > blocks.2
+stage 1 selected_target: blocks.3
+stage 1 decision: approved
+stage 1 gain: 0.001653909683227539
+
+stage 2 NTK rank: blocks.4 > blocks.3 > blocks.2
+stage 2 selected_target: blocks.4
+stage 2 decision: rejected
+stage 2 gain: 0.0
+```
+
+Final 4M interpretation across seeds 42, 7, and 123:
+
+```text
+- Raw NTK is useful as a sensitivity diagnostic.
+- Raw NTK top-1 is not a safe router.
+- Seed 42 approves a fifth graft on blocks.2 even though blocks.2 is raw NTK rank 3.
+- Seed 7 rejects a stage-2 blocks.2 candidate under nearly the same raw rank.
+- Seed 123 gets seed-42-scale total gain from blocks.3 even though blocks.3 is raw NTK rank 2.
+- Seed 123 rejects stage-2 blocks.4 even though blocks.4 is raw NTK rank 1.
+```
+
+Marco 4N-A was run over all three seeds and recommends:
+
+```text
+reject_raw_ntk_prefilter
+test_saturation_adjusted_ntk
+test_residual_delta_ntk
+include_target_saturation_features
+```
 
 ## Success Criteria
 
@@ -325,4 +371,6 @@ one of these outcomes:
 - NTK rank correlates with best deep candidate more reliably than the current probe.
 ```
 
-If 4M is useful, promote the signal into routing in Marco 4N.
+Final verdict: 4M is useful as a diagnostic, but not as direct routing evidence.
+The raw score should stay diagnostic-only; 4N-B should test conservative
+residual/saturation-aware rules rather than raw NTK promotion.
