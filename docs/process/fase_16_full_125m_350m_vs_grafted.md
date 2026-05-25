@@ -1147,25 +1147,41 @@ seed 42: completed; reproduced 4K best result
   route: grafts 0-3 -> blocks.4, graft 4 -> blocks.2
   NTK raw ranking: blocks.4 > blocks.3 > blocks.2 in stages 1, 2 and 3
 
-seed 7: running
-  run_dir: /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7
+seed 7: completed
+  composed_loss: 10.386313915252686
+  accepted_grafts: 4
+  route: grafts 0-3 -> blocks.4
+  stage 2 selected blocks.2 and rejected it with gain 0.0
+  NTK raw ranking: blocks.4 > blocks.3 > blocks.2 in stages 1 and 2
 
-seed 123: pending after seed 7
+seed 123: pending / recommended as confirmation, but not a blocker for 4N-A
 ```
 
-Interim interpretation: raw NTK score explains the first accepted group in seed
-42, but not the fifth graft, because stage 2 selected `blocks.2` while raw NTK
-still ranked `blocks.2` last among the three candidate targets. Marco 4N should
-therefore prefer residual/novelty/saturation-normalized NTK variants over a raw
-`ntk_prefilter` unless seeds 7/123 show different evidence.
+Interim interpretation: raw NTK score explains the first accepted group in seeds
+42 and 7, but not the fifth graft or seed sensitivity. Seed 42 selected
+`blocks.2` in stage 2 and approved it even though raw NTK ranked `blocks.2`
+last; seed 7 also selected `blocks.2`, but rejected it with gain 0.0 under the
+same raw ranking. Marco 4N is therefore split into 4N-A and 4N-B: 4N-A performs
+offline residual/saturation analysis, and 4N-B is a later conservative routing
+experiment if 4N-A finds a safe rule.
 
-### Marco 4N - NTK-Guided Candidate Pruning and Routing
+### Marco 4N - NTK Residual/Saturation Routing Plan
 
-Status: **planejado / dependente do resultado diagnostico do Marco 4M**.
+Status: **4N-A implementado / 4N-B planejado e dependente da analise offline**.
 
 Objetivo:
 
-Usar o score NTK-style como candidate pruning/routing automatico.
+Dividir o Marco 4N em duas etapas:
+
+```text
+4N-A:
+  analise offline residual/saturation-aware dos artifacts 4M
+  sem alterar roteamento ou treino
+
+4N-B:
+  futuro experimento de routing NTK-aware conservador
+  somente se 4N-A encontrar uma regra segura
+```
 
 Documento:
 
@@ -1173,25 +1189,59 @@ Documento:
 docs/reports/phase16_marco4n_ntk_guided_candidate_routing.md
 ```
 
-Hipoteses de modo:
+Implementacao 4N-A:
 
 ```text
-ntk_prefilter:
-  ranquear targets por score NTK
-  manter top targets
-  rodar grid lr/scale apenas nesses targets
+saint/adapters/drm_grafting_ntk_analysis.py
+scripts/analyze_phase16_ntk_residual_saturation.py
+tests/test_ntk_residual_saturation_analysis.py
+```
 
-ntk_score_blend:
-  manter probe atual
-  adicionar score NTK normalizado ao candidate_score
+Comando 4N-A para seeds 42 e 7:
+
+```bash
+cd /home/rato/dev/ai/SAINT-G
+
+python \
+  scripts/analyze_phase16_ntk_residual_saturation.py \
+  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed42 \
+  --run-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7 \
+  --output-dir /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4n_a_ntk_residual_saturation_seed42_seed7
+```
+
+Saidas 4N-A:
+
+```text
+ntk_candidate_joined_metrics.json
+ntk_stage_feature_table.csv
+ntk_run_summaries.json
+ntk_routing_analysis.md
+```
+
+Regras candidatas para 4N-B:
+
+```text
+saturation penalty:
+  adjusted_score = ntk_score / (1 + accepted_grafts_on_target)
+
+residual delta:
+  adjusted_score = abs(ntk_score_stage_t - ntk_score_stage_t_minus_1)
+
+anti-saturation:
+  se target ja recebeu stage_size grafts,
+  reduzir prioridade no proximo stage
+
+hybrid conservative:
+  manter composed_gain_orthogonal como decisao principal,
+  usar NTK somente para desempate, warning ou ordenacao secundaria
 ```
 
 Criterio:
 
 ```text
-preservar/melhorar o resultado 4K com menos probes
-ou recuperar quinto graft em uma seed onde 4L rejeitou o stage 2
-ou reduzir runtime mantendo composed_loss equivalente.
+4N-A deve mostrar se alguma feature residual/saturation-aware separa
+seed 42 stage-2 blocks.2 approved de seed 7 stage-2 blocks.2 rejected.
+4N-B so deve ser implementado se a regra nao descartar targets uteis conhecidos.
 ```
 
 ### Marco 4O - Tensor-Network Follow-ups from ITensors.jl

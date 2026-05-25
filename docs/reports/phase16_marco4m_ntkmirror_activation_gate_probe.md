@@ -276,27 +276,42 @@ Interpretation for seed 42:
   without residual, novelty, or saturation normalization.
 ```
 
-Seed 7 is currently running as the next diagnostic replication:
+Seed 7 completed as the next diagnostic replication:
 
 ```text
 run_dir: /mnt/e/dev/ai/DRM-SAINT-G/runs/phase16_marco4m_ntk_probe_topk8_probe2k_24graft_seed7
-seed: 7
-status: running as of documentation update
-observed command: python scripts/benchmark_drm_g_phase16_graftblock.py ... --seeds 7 ... --ntk-activation-probe-batches 4 --ntk-activation-probe-split train
+base_loss: 10.386841535568237
+composed_loss: 10.386313915252686
+accumulated_gain: 0.0005276203155517578
+accepted_groups: 1
+accepted_grafts: 4
+route: grafts 0-3 -> blocks.4
+recomposed_loss: 10.386313915252686
+recompose_abs_diff: 0.0
 ```
 
-The key question for seed 7 is whether the raw NTK ranking remains:
+Seed 7 kept the same raw NTK ranking:
 
 ```text
-blocks.4 > blocks.3 > blocks.2
+stage 1 NTK rank: blocks.4 > blocks.3 > blocks.2
+stage 2 NTK rank: blocks.4 > blocks.3 > blocks.2
 ```
 
-If seed 7 keeps the same ranking but rejects the second-stage graft again, raw
-NTK is likely measuring global activation sensitivity rather than marginal
-post-graft utility. If seed 7 changes the NTK ranking, then NTK may still be a
-useful feature for explaining seed sensitivity.
+But seed 7 rejected stage 2:
 
-Seed 123 remains pending after seed 7.
+```text
+stage 2 selected_target: blocks.2
+stage 2 decision: rejected
+stage 2 gain: 0.0
+```
+
+This strengthens the interim conclusion: raw NTK is likely measuring global
+activation sensitivity rather than marginal post-graft utility. It is stable
+across seeds 42 and 7, but it does not explain why seed 42 gets a useful fifth
+graft in `blocks.2` while seed 7 rejects the same target.
+
+Seed 123 remains recommended as confirmation, but it is no longer a blocker for
+4N-A offline analysis.
 
 ## Success Criteria
 
