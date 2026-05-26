@@ -14,6 +14,7 @@ from saint.adapters.drm_grafting_graftblock import (
     graft_checkpoint_payload,
     make_graft_blocks,
 )
+from saint.adapters.drm_grafting_tt_adapter import make_tt_graft_blocks
 from saint.adapters.drm_grafting_graftblock_routed_utils import candidate_rank as _candidate_rank, candidate_score as _candidate_score, marco_name as _marco_name, markdown as _markdown, ntk_feature_map as _ntk_feature_map, select_stage_candidates as _select_stage_candidates
 from saint.adapters.drm_grafting_ntk_probe import run_activation_probe_stage as _run_ntk_activation_probe_stage
 
@@ -54,6 +55,18 @@ def _new_model(torch, model_cls, drm_config, metadata):
 
 
 def _new_grafts(torch, drm_config, metadata, args):
+    if str(getattr(args, "adapter_type", "dense_graftblock")) == "tt_mps":
+        return make_tt_graft_blocks(
+            torch,
+            d_model=int(drm_config.d_model),
+            adapter_width=int(getattr(args, "tt_adapter_width", 0) or args.hidden_size),
+            bond_dim=int(getattr(args, "tt_bond_dim", 4)),
+            graft_count=int(args.graft_count),
+            seed=int(metadata["seed"]),
+            init_scale=float(args.init_scale),
+            activation=str(args.activation),
+            device=str(metadata["device"]),
+        )
     return make_graft_blocks(
         torch,
         d_model=int(drm_config.d_model),
@@ -471,6 +484,10 @@ def run_validation_routed_staged(torch, config_cls, model_cls, drm_config, metad
         "accepted_graft_ids": sorted(accepted),
         "target_by_graft": {str(key): value for key, value in sorted(accepted_target_map.items())},
         "candidate_score_mode": getattr(args, "candidate_score_mode", "composed_gain"),
+        "adapter_type": str(getattr(args, "adapter_type", "dense_graftblock")),
+        "tt_adapter_width": int(getattr(args, "tt_adapter_width", 0) or 0),
+        "tt_bond_dim": int(getattr(args, "tt_bond_dim", 0) or 0),
+        "trainable_parameters_per_graft": int(accepted_states[0].parameter_count()) if accepted_states else 0,
         "orthogonal_penalty": float(getattr(args, "orthogonal_penalty", 0.0)),
         "candidate_probe_steps": int(getattr(args, "candidate_probe_steps", 0) or 0),
         "candidate_probe_max_train_seconds": float(getattr(args, "candidate_probe_max_train_seconds", 0.0) or 0.0),

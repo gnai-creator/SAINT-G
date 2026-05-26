@@ -1,6 +1,6 @@
 # Phase 16 Marco 4O - Tensor-Network Follow-ups from ITensors.jl and NTK-Mirror
 
-Status: **design documented; 4O-lite SVD anatomy completed for 4N-B seeds 42, 7, and 123**.
+Status: **4O-lite SVD anatomy completed; 4O TT/MPS adapter baseline implemented and smoke-executed for seed 42 chi 2/4/8/16**.
 
 This document records the technical ideas extracted from two external projects and maps them to concrete SAINT-G and DRM Transformer follow-up work:
 
@@ -553,6 +553,16 @@ In SAINT-G terms:
 4O answers: can that capacity be represented more cheaply as TT/MPS?
 ```
 
+4O has now been executed in smoke form:
+
+```text
+docs/reports/phase16_marco4o_tt_mps_adapter_baseline.md
+runs/phase16_marco4o_tt_mps_adapter_seed42_chi{2,4,8,16}_smoke/
+```
+
+Short result: the PyTorch-native TT/MPS adapter family is implemented and recomposes exactly, but the seed-42 width-128 chi 2/4/8/16 smoke sweep produced zero composed gain and accepted zero grafts. This is a negative first modeling result, not an infrastructure failure.
+
+
 A future combined routing score could look like:
 
 ```text
@@ -565,17 +575,23 @@ candidate_score = composed_gain
 
 ## Recommended Order of Work
 
-Do not interrupt active Marco 4M seed runs. The recommended order is:
+Completed through first 4O smoke execution:
 
 ```text
-1. Finish Marco 4M seed 42 and inspect ntk_activation_probe_metrics.json.
-2. Run Marco 4M for seeds 7 and 123 if seed 42 output is interpretable.
-3. Decide Marco 4N mode:
-   - ntk_prefilter if NTK ranking is strongly predictive;
-   - ntk_score_blend if NTK ranking is useful but not decisive;
-   - diagnostic-only if NTK ranking is noisy.
-4. Implement Marco 4O-lite Graft SVD Anatomy.
-5. If grafts are compressible, implement Marco 4O TT/MPS Adapter Baseline.
+1. Marco 4M/4N decision path completed through conservative 4N-B / 4N-C analysis.
+2. Marco 4O-lite Graft SVD Anatomy completed.
+3. Marco 4O TT/MPS Adapter Baseline implemented and smoke-executed.
+```
+
+Current recommended next step:
+
+```text
+4. Run Marco 4O-B TT/MPS Capacity Sanity Sweep if we want one more structured-adapter check:
+   - adapter_width 256/512;
+   - chi 4/8/16;
+   - longer stage-1 candidate probes;
+   - dense parameter-matched baseline.
+5. If 4O-B remains zero-gain, deprioritize TT/MPS and move to cost-aware dense graft routing.
 6. In parallel or later, run DRM Marco A tensor anatomy on drm_transformer.
 ```
 

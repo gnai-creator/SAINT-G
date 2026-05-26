@@ -6,6 +6,8 @@ from typing import Any
 
 
 def marco_name(args) -> str:
+    if str(getattr(args, "adapter_type", "dense_graftblock")) == "tt_mps":
+        return "4o_tt_mps_adapter_baseline"
     if getattr(args, "candidate_score_mode", "composed_gain") == "composed_gain_ntk_hybrid_conservative":
         return "4n_b_ntk_hybrid_conservative_routing"
     if int(getattr(args, "ntk_activation_probe_batches", 0) or 0) > 0:

@@ -1453,12 +1453,33 @@ extrapolacao, nao apenas uma demonstracao isolada.
 
 ## Proximo Passo Imediato
 
-Executar o Marco 4O:
+Marco 4O foi executado em smoke form e esta documentado em:
 
-- implementar um baseline PyTorch-native `TTLinear` ou `TTGraftBlock`;
-- iniciar sweep pequeno com `bond_dim`/`chi` 2, 4, 8 e 16;
-- usar o mesmo protocolo routed/staged dos graft blocks para comparacao honesta;
-- comparar contra 4K/4L/4N-B em loss, parametros, bytes de checkpoint, runtime,
-  pico CUDA, robustez multi-seed e capacidade de recuperar o quinto graft;
-- manter o resultado do 4O-lite como restricao: testar baseline estruturado, nao
-  truncar cegamente os graft blocks densos ja treinados.
+```text
+docs/reports/phase16_marco4o_tt_mps_adapter_baseline.md
+runs/phase16_marco4o_tt_mps_adapter_seed42_chi{2,4,8,16}_smoke/
+```
+
+Veredito atual:
+
+```text
+TT/MPS adapter baseline implementado e recomponivel, mas negativo no smoke seed 42:
+chi 2/4/8/16, adapter_width 128, zero ganho composto e zero grafts aceitos.
+```
+
+Proximo passo recomendado:
+
+```text
+Marco 4O-B - TT/MPS Capacity Sanity Sweep
+```
+
+Executar 4O-B somente se quisermos dar uma ultima chance controlada ao baseline estruturado:
+
+- testar `adapter_width` 256 e 512;
+- manter `chi` 4, 8 e 16;
+- aumentar `candidate_probe_steps` para 200-500;
+- isolar `max_stages=1` primeiro para medir aprendibilidade do primeiro grupo;
+- comparar contra graft block denso com parametros treinaveis aproximadamente pareados;
+- so rodar multiseed se aparecer ganho positivo no stage 1.
+
+Se 4O-B continuar com ganho zero, encerrar a trilha TT/MPS por enquanto e voltar para roteamento denso cost-aware.
