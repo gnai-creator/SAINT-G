@@ -1,6 +1,6 @@
 # Phase 16 Marco 4O - Tensor-Network Follow-ups from ITensors.jl and NTK-Mirror
 
-Status: **planned / design documented**.
+Status: **design documented; 4O-lite SVD anatomy completed for 4N-B seeds 42, 7, and 123**.
 
 This document records the technical ideas extracted from two external projects and maps them to concrete SAINT-G and DRM Transformer follow-up work:
 
@@ -151,6 +151,15 @@ That makes the next recommended tensor-network follow-up:
 ```text
 Marco 4O-lite - Graft SVD Anatomy
 ```
+
+4O-lite has now been executed and documented:
+
+```text
+docs/reports/phase16_marco4o_lite_graft_svd_anatomy.md
+runs/phase16_marco4o_lite_graft_svd_seed42_seed7_seed123_effective/graft_svd_anatomy.md
+```
+
+Short result: accepted `up` matrices remain full-rank-like (`rank@99% = 95/96` on average), accepted `down` matrices are moderately concentrated (`rank@99% ~= 19.8`), and the linearized diagnostic product `up @ down` is strongly low-rank-looking (`rank@99% ~= 2.8`). Therefore 4O-lite supports a controlled low-rank baseline sweep, not blind truncation of the current full graft blocks.
 
 and then, only if compression signals are strong:
 

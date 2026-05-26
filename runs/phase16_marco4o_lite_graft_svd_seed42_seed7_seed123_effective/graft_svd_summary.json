@@ -1,0 +1,190 @@
+{
+  "accepted_low_rank_99_le16_rows": 4,
+  "accepted_matrix_rows": 42,
+  "marco": "4o_lite_graft_svd_anatomy",
+  "matrix_summaries": [
+    {
+      "count": 14,
+      "graft_status": "accepted",
+      "matrix_name": "down",
+      "mean_energy_rank_99": 19.785714285714285,
+      "mean_energy_rank_999": 39.92857142857143,
+      "mean_energy_top16": 0.9858991520808982,
+      "mean_energy_top32": 0.9973802963548316,
+      "mean_energy_top8": 0.9701853829827559,
+      "mean_stable_rank": 1.1366605070544196
+    },
+    {
+      "count": 6,
+      "graft_status": "unused_sample",
+      "matrix_name": "down",
+      "mean_energy_rank_99": 0.0,
+      "mean_energy_rank_999": 0.0,
+      "mean_energy_top16": 0.0,
+      "mean_energy_top32": 0.0,
+      "mean_energy_top8": 0.0,
+      "mean_stable_rank": 0.0
+    },
+    {
+      "count": 14,
+      "graft_status": "accepted",
+      "matrix_name": "effective_up_down",
+      "mean_energy_rank_99": 2.7857142857142856,
+      "mean_energy_rank_999": 13.285714285714286,
+      "mean_energy_top16": 0.9993906042649764,
+      "mean_energy_top32": 0.9999724668973455,
+      "mean_energy_top8": 0.9974676139138829,
+      "mean_stable_rank": 1.026645245397071
+    },
+    {
+      "count": 6,
+      "graft_status": "unused_sample",
+      "matrix_name": "effective_up_down",
+      "mean_energy_rank_99": 0.0,
+      "mean_energy_rank_999": 0.0,
+      "mean_energy_top16": 0.0,
+      "mean_energy_top32": 0.0,
+      "mean_energy_top8": 0.0,
+      "mean_stable_rank": 0.0
+    },
+    {
+      "count": 14,
+      "graft_status": "accepted",
+      "matrix_name": "up",
+      "mean_energy_rank_99": 95.0,
+      "mean_energy_rank_999": 96.0,
+      "mean_energy_top16": 0.20702309092375248,
+      "mean_energy_top32": 0.3767316889206576,
+      "mean_energy_top8": 0.11975462158465898,
+      "mean_stable_rank": 25.323333836775706
+    },
+    {
+      "count": 6,
+      "graft_status": "unused_sample",
+      "matrix_name": "up",
+      "mean_energy_rank_99": 95.0,
+      "mean_energy_rank_999": 96.0,
+      "mean_energy_top16": 0.18203760357506638,
+      "mean_energy_top32": 0.3570314599963803,
+      "mean_energy_top8": 0.09209006047966402,
+      "mean_stable_rank": 85.64749494681908
+    }
+  ],
+  "phase": "16",
+  "recommendations": [
+    "use_svd_anatomy_as_diagnostic_before_more_routing_sweeps",
+    "do_not_assume_strong_low_rank_compressibility_yet",
+    "compare_accepted_vs_unused_spectra_before_removing_capacity"
+  ],
+  "row_count": 60,
+  "run_count": 3,
+  "run_summaries": [
+    {
+      "accepted_graft_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "accepted_grafts": 6,
+      "accumulated_gain": 0.001645803451538086,
+      "analyzed_grafts": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "base_loss": 10.416174411773682,
+      "checkpoint": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed42/composed_graft_checkpoint.pt",
+      "composed_loss": 10.414528608322144,
+      "include_effective_linear": true,
+      "include_unused_sample": 2,
+      "recompose_abs_diff": 0.0,
+      "run_dir": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed42",
+      "seed": "42",
+      "target_by_graft": {
+        "0": "blocks.4",
+        "1": "blocks.4",
+        "2": "blocks.4",
+        "3": "blocks.4",
+        "4": "blocks.3",
+        "5": "blocks.2"
+      }
+    },
+    {
+      "accepted_graft_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "accepted_grafts": 4,
+      "accumulated_gain": 0.0005276203155517578,
+      "analyzed_grafts": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "base_loss": 10.386841535568237,
+      "checkpoint": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed7/composed_graft_checkpoint.pt",
+      "composed_loss": 10.386313915252686,
+      "include_effective_linear": true,
+      "include_unused_sample": 2,
+      "recompose_abs_diff": 0.0,
+      "run_dir": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed7",
+      "seed": "7",
+      "target_by_graft": {
+        "0": "blocks.4",
+        "1": "blocks.4",
+        "2": "blocks.4",
+        "3": "blocks.4"
+      }
+    },
+    {
+      "accepted_graft_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "accepted_grafts": 4,
+      "accumulated_gain": 0.001653909683227539,
+      "analyzed_grafts": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "base_loss": 10.417015075683594,
+      "checkpoint": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed123/composed_graft_checkpoint.pt",
+      "composed_loss": 10.415361166000366,
+      "include_effective_linear": true,
+      "include_unused_sample": 2,
+      "recompose_abs_diff": 0.0,
+      "run_dir": "/home/rato/dev/ai/SAINT-G/runs/phase16_marco4n_b_ntk_hybrid_topk8_probe2k_24graft_seed123",
+      "seed": "123",
+      "target_by_graft": {
+        "0": "blocks.3",
+        "1": "blocks.3",
+        "2": "blocks.3",
+        "3": "blocks.3"
+      }
+    }
+  ],
+  "seeds": [
+    "42",
+    "7",
+    "123"
+  ]
+}
